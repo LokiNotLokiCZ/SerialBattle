@@ -417,9 +417,11 @@
                     if (json) {
                         lobbyData = json;
                         updateUI();
+                        return true;
                     }
                 }
             } catch(e) {}
+            return false;
         }
 
         async function loadStateFromServer() {
@@ -521,7 +523,7 @@
         async function addShowDirect(title, image) {
             if (!currentChannel) return;
 
-            // 1. Získáme nejnovější data ze serveru před pokusem o zápis
+            // Okamžitě si natáhneme aktuální data ze serveru, aby jsme předešli konfliktu verzí
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
@@ -534,7 +536,7 @@
 
             if (!lobbyData.shows) lobbyData.shows = [];
 
-            // 2. Kontrola duplicity
+            // Bezpečná kontrola duplicity podle ID zařízení nebo nicku
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase()));
             if (alreadyAdded) {
                 alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
@@ -545,7 +547,7 @@
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
 
-            // 3. Přidání položky do pole
+            // Přidáme nový seriál do lokální kopie
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
                 title: title,
@@ -555,10 +557,11 @@
                 addedByNick: userNick
             });
 
-            // 4. Vyčištění inputu a uložení na server
+            // Vyčištění vyhledávání
             document.getElementById('show-search-input').value = '';
             lastSelectedShow = null;
             
+            // Uložení na server a okamžitá aktualizace rozhraní
             await saveStateToApi(lobbyData);
         }
 
