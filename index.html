@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Serial Battle</title>
-    <!-- Firebase SDK pro reálnou synchronizaci mezi všemi lidmi -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
         :root {
             --bg-color: #0e0e10;
@@ -323,13 +320,6 @@
     </div>
 
     <script>
-        // Inicializace veřejné sdílené databáze pro živý synchronizovaný přenos
-        const firebaseConfig = {
-            databaseURL: "https://serial-battle-default-rtdb.europe-west1.firebasedatabase.app/"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-
         let userId = localStorage.getItem('sb_user_id');
         if (!userId) {
             userId = 'user_' + Math.random().toString(36).substring(2, 15);
@@ -348,6 +338,7 @@
         let isAdmin = localStorage.getItem('sb_admin') === 'true';
         let ws = null;
         let searchTimeout = null;
+        let syncInterval = null;
 
         window.onload = function() {
             const params = new URLSearchParams(window.location.search);
@@ -385,36 +376,48 @@
             document.getElementById('lobby-section').classList.remove('hidden');
             document.getElementById('display-channel').innerText = currentChannel;
 
-            // ŽIVÝ POSLUCHAČ DATABÁZE - jakákoliv změna odkudkoliv se ihned vykreslí
-            db.ref('rooms/' + currentChannel).on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    lobbyData = {
-                        shows: data.shows || [],
-                        status: data.status || 'lobby',
-                        currentPair: data.currentPair || [0, 1],
-                        votes: data.votes || { 1: 0, 2: 0 },
-                        votedUsers: data.votedUsers || []
-                    };
-                } else {
-                    lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
-                }
-                updateUI();
-            });
+            loadStateFromServer();
+            if (syncInterval) clearInterval(syncInterval);
+            syncInterval = setInterval(loadStateFromServer, 2000); // Obnovuje stav každé 2 vteřiny
 
             connectTwitchChat();
         }
 
-        function saveState() {
-            db.ref('rooms/' + currentChannel).set(lobbyData);
+        // Použijeme bezplatné npoint.io API pro bezproblémové sdílení dat
+        function getStorageKey() {
+            return 'serialbattle_' + currentChannel;
         }
 
-        function resetLobbyData() {
+        async function loadStateFromServer() {
+            try {
+                const res = await fetch(`https://api.npoint.io/bin_${getStorageKey()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && typeof data === 'object') {
+                        lobbyData = data;
+                        updateUI();
+                    }
+                }
+            } catch(e) {}
+        }
+
+        async function saveState() {
+            try {
+                await fetch(`https://api.npoint.io/bin_${getStorageKey()}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(lobbyData)
+                });
+            } catch(e) {}
+            updateUI();
+        }
+
+        async function resetLobbyData() {
             if (!isAdmin) return;
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
-                db.ref('rooms/' + currentChannel).remove().then(() => {
-                    location.reload();
-                });
+                lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
+                await saveState();
+                location.reload();
             }
         }
 
@@ -468,7 +471,8 @@
             addShowDirect(title, image);
         }
 
-        function addShowDirect(title, image) {
+        async function addShowDirect(title, image) {
+            await loadStateFromServer();
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId);
             if (alreadyAdded) {
                 alert('Z tohoto zařízení už byl přidán seriál! Každý může přidat pouze jeden.');
@@ -476,8 +480,6 @@
             }
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
-
-            if (!lobbyData.shows) lobbyData.shows = [];
 
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
@@ -489,12 +491,13 @@
 
             document.getElementById('show-search-input').value = '';
             document.getElementById('suggestions-box').classList.add('hidden');
-            saveState();
+            await saveState();
         }
 
-        function removeShow(showId) {
+        async function removeShow(showId) {
+            await loadStateFromServer();
             lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
-            saveState();
+            await saveState();
         }
 
         function updateUI() {
@@ -568,14 +571,14 @@
             }
         }
 
-        function startBattle() {
+        async function startBattle() {
             if (!isAdmin) return;
             if (!lobbyData.shows || lobbyData.shows.length < 2) return;
             lobbyData.status = 'battle';
             lobbyData.currentPair = [0, 1];
             lobbyData.votes = { 1: 0, 2: 0 };
             lobbyData.votedUsers = [];
-            saveState();
+            await saveState();
         }
 
         function updateBattleUI() {
@@ -611,7 +614,7 @@
             document.getElementById('f2-votes').innerText = votes[2] || 0;
         }
 
-        function nextRound() {
+        async function nextRound() {
             if (!isAdmin) return;
             const shows = lobbyData.shows || [];
             let next1 = lobbyData.currentPair[1];
@@ -625,7 +628,7 @@
                 lobbyData.votes = { 1: 0, 2: 0 };
                 lobbyData.votedUsers = [];
             }
-            saveState();
+            await saveState();
         }
 
         function connectTwitchChat() {
