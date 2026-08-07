@@ -520,7 +520,7 @@
         }
 
         async function addShowDirect(title, image) {
-            // Nejdříve načteme nejčerstvější data ze serveru před přidáním
+            // Vynucení stažení aktuálního stavu před kontrolou a přidáním
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
@@ -536,6 +536,7 @@
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase()));
             if (alreadyAdded) {
                 alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
+                updateUI();
                 return;
             }
 
