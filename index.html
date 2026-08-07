@@ -398,9 +398,9 @@
             document.getElementById('display-channel').innerText = currentChannel;
             document.getElementById('display-user').innerText = userNick;
 
-            loadStateFromServer();
+            loadStateFromServer(true);
             if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(loadStateFromServer, 2000);
+            syncInterval = setInterval(() => loadStateFromServer(false), 2500);
 
             connectTwitchChat();
         }
@@ -414,21 +414,29 @@
                 });
                 if (res.ok) {
                     const json = await res.json();
-                    lobbyData = json;
-                    updateUI();
+                    if (json) {
+                        lobbyData = json;
+                        updateUI();
+                    }
                 }
             } catch(e) {}
         }
 
-        async function loadStateFromServer() {
+        async function loadStateFromServer(forceUpdateUI = false) {
             if (!currentChannel) return;
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
                     const json = await res.json();
                     if (json) {
+                        // Nekoliduj s lokálně přidávaným obsahem, pokud se neliší délka nebo jde o pozadí
                         lobbyData = json;
-                        updateUI();
+                        if (forceUpdateUI) {
+                            updateUI();
+                        } else {
+                            // Kontrolujeme jen pokud zrovna uživatel nevyplňuje formulář, nebo updatujeme UI na pozadí jemně
+                            updateUI();
+                        }
                         document.getElementById('sync-status').innerText = 'Připojeno';
                         document.getElementById('sync-status').style.color = '#00c853';
                     }
@@ -518,7 +526,17 @@
         }
 
         async function addShowDirect(title, image) {
-            await loadStateFromServer();
+            // Nejdříve natáhneme aktuální stav ze serveru, abychom předešli přepsání starými daty
+            try {
+                const res = await fetch(`/api/battle?channel=${currentChannel}`);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (json && json.shows) {
+                        lobbyData = json;
+                    }
+                }
+            } catch(e) {}
+
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick === userNick));
             if (alreadyAdded) {
                 alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
@@ -526,6 +544,8 @@
             }
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
+
+            if (!lobbyData.shows) lobbyData.shows = [];
 
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
@@ -538,13 +558,25 @@
 
             document.getElementById('show-search-input').value = '';
             document.getElementById('suggestions-box').classList.add('hidden');
+            
             await saveStateToApi(lobbyData);
+            updateUI();
         }
 
         async function removeShow(showId) {
-            await loadStateFromServer();
+            try {
+                const res = await fetch(`/api/battle?channel=${currentChannel}`);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (json && json.shows) {
+                        lobbyData = json;
+                    }
+                }
+            } catch(e) {}
+
             lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
             await saveStateToApi(lobbyData);
+            updateUI();
         }
 
         function updateUI() {
@@ -558,7 +590,7 @@
                 adminBattleControls.classList.remove('hidden');
             } else {
                 adminControls.classList.add('hidden');
-                loginBox.classList.remove('hidden');
+                loginBox.classList.add('hidden');
                 adminBattleControls.classList.add('hidden');
             }
 
@@ -634,7 +666,7 @@
 
         async function startBattle() {
             if (!isAdmin) return;
-            await loadStateFromServer();
+            await loadStateFromServer(true);
             if (!lobbyData.shows || lobbyData.shows.length < 2) return;
             lobbyData.status = 'battle';
             lobbyData.currentPair = [0, 1];
@@ -665,7 +697,7 @@
                 const t2 = document.getElementById('f2-trailer');
                 if (shows[idx2].trailer) {
                     t2.href = shows[idx2].trailer;
-                    t2.classList.add('hidden');
+                    t2.classList.remove('hidden');
                 } else {
                     t2.classList.add('hidden');
                 }
@@ -678,7 +710,7 @@
 
         async function nextRound() {
             if (!isAdmin) return;
-            await loadStateFromServer();
+            await loadStateFromServer(true);
             const shows = lobbyData.shows || [];
             let next1 = lobbyData.currentPair[1];
             let next2 = next1 + 1;
@@ -722,7 +754,14 @@
 
                         if (lobbyData.status === 'battle') {
                             if (text === '1' || text === '2') {
-                                await loadStateFromServer();
+                                try {
+                                    const res = await fetch(`/api/battle?channel=${currentChannel}`);
+                                    if (res.ok) {
+                                        const json = await res.json();
+                                        if (json) lobbyData = json;
+                                    }
+                                } catch(e) {}
+
                                 if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
                                 if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
 
