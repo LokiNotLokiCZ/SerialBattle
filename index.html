@@ -296,6 +296,8 @@
                 Hlasujte v Twitch chatu napsáním čísla <strong>1</strong> nebo <strong>2</strong>!
             </div>
 
+            <div id="voting-status" style="text-align:center; font-weight:bold; margin-bottom: 15px; font-size: 16px;"></div>
+
             <div class="battle-arena">
                 <!-- Soupeř 1 -->
                 <div class="fighter-card">
@@ -319,7 +321,13 @@
             </div>
 
             <div id="admin-battle-controls" class="hidden">
-                <button class="btn btn-danger" onclick="nextRound()" style="margin-top: 20px;">Ukončit / Další kolo</button>
+                <p style="font-size: 13px; color: #aaa; text-align: center; margin-bottom: 5px;">Délka hlasování:</p>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn" id="dur-30-btn" style="background:#444;" onclick="setVotingDuration(30)">30s</button>
+                    <button class="btn" id="dur-60-btn" style="background:#444;" onclick="setVotingDuration(60)">60s</button>
+                </div>
+                <button class="btn" id="start-voting-btn" onclick="startVoting()" style="background-color: #00c853; margin-top: 10px;">▶️ Spustit hlasování</button>
+                <button class="btn btn-danger" onclick="nextRound()" style="margin-top: 10px;">Ukončit / Další kolo</button>
             </div>
         </div>
     </div>
@@ -332,13 +340,17 @@
             status: 'lobby', 
             currentPair: [0, 1],
             votes: { 1: 0, 2: 0 },
-            votedUsers: [] 
+            votedUsers: [],
+            votingEndsAt: null,
+            votingDuration: 30
         };
 
         let isAdmin = localStorage.getItem('sb_admin') === 'true';
         let ws = null;
         let searchTimeout = null;
         let syncInterval = null;
+        let votingTickInterval = null;
+        let selectedVotingDuration = 30;
         let lastSelectedShow = null;
 
         window.onload = function() {
@@ -396,6 +408,10 @@
             if (syncInterval) clearInterval(syncInterval);
             syncInterval = setInterval(loadStateFromServer, 2000);
 
+            if (votingTickInterval) clearInterval(votingTickInterval);
+            votingTickInterval = setInterval(updateVotingCountdown, 500);
+            setVotingDuration(30);
+
             connectTwitchChat();
         }
 
@@ -440,7 +456,7 @@
         async function resetLobbyData() {
             if (!isAdmin) return;
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
-                const emptyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
+                const emptyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [], votingEndsAt: null, votingDuration: 30 };
                 await saveStateToApi(emptyData);
             }
         }
@@ -666,6 +682,7 @@
             lobbyData.currentPair = [0, 1];
             lobbyData.votes = { 1: 0, 2: 0 };
             lobbyData.votedUsers = [];
+            lobbyData.votingEndsAt = null;
             await saveStateToApi(lobbyData);
         }
 
@@ -700,6 +717,8 @@
             const votes = lobbyData.votes || { 1: 0, 2: 0 };
             document.getElementById('f1-votes').innerText = votes[1] || 0;
             document.getElementById('f2-votes').innerText = votes[2] || 0;
+
+            updateVotingCountdown();
         }
 
         async function nextRound() {
@@ -717,7 +736,60 @@
                 lobbyData.votes = { 1: 0, 2: 0 };
                 lobbyData.votedUsers = [];
             }
+            lobbyData.votingEndsAt = null;
             await saveStateToApi(lobbyData);
+        }
+
+        function setVotingDuration(seconds) {
+            selectedVotingDuration = seconds;
+            const btn30 = document.getElementById('dur-30-btn');
+            const btn60 = document.getElementById('dur-60-btn');
+            if (btn30) btn30.style.background = seconds === 30 ? 'var(--accent-color)' : '#444';
+            if (btn60) btn60.style.background = seconds === 60 ? 'var(--accent-color)' : '#444';
+        }
+
+        async function startVoting() {
+            if (!isAdmin) return;
+            await loadStateFromServer();
+            if (lobbyData.status !== 'battle') return;
+
+            lobbyData.votingEndsAt = Date.now() + (selectedVotingDuration * 1000);
+            lobbyData.votingDuration = selectedVotingDuration;
+            lobbyData.votes = { 1: 0, 2: 0 };
+            lobbyData.votedUsers = [];
+            await saveStateToApi(lobbyData);
+        }
+
+        function isVotingOpen() {
+            return lobbyData.status === 'battle' && !!lobbyData.votingEndsAt && Date.now() < lobbyData.votingEndsAt;
+        }
+
+        function updateVotingCountdown() {
+            const el = document.getElementById('voting-status');
+            const startBtn = document.getElementById('start-voting-btn');
+            if (!el) return;
+
+            if (lobbyData.status !== 'battle') {
+                el.innerText = '';
+                return;
+            }
+
+            if (lobbyData.votingEndsAt) {
+                const remainingMs = lobbyData.votingEndsAt - Date.now();
+                if (remainingMs > 0) {
+                    el.innerText = `⏳ Hlasování končí za ${Math.ceil(remainingMs / 1000)} s`;
+                    el.style.color = '#00c853';
+                    if (startBtn) startBtn.setAttribute('disabled', 'true');
+                } else {
+                    el.innerText = '🛑 Hlasování skončilo!';
+                    el.style.color = 'var(--danger-color)';
+                    if (startBtn) startBtn.removeAttribute('disabled');
+                }
+            } else {
+                el.innerText = 'Hlasování zatím nebylo spuštěno.';
+                el.style.color = '#aaa';
+                if (startBtn) startBtn.removeAttribute('disabled');
+            }
         }
 
         function connectTwitchChat() {
@@ -737,34 +809,49 @@
             };
 
             ws.onmessage = async function(event) {
-                const message = event.data;
-                if (message.includes('PRIVMSG')) {
-                    const matchUser = message.match(/:([a-zA-Z0-9_]+)!/);
+                // Twitch může v jednom WebSocket framu poslat víc IRC řádků najednou,
+                // oddělených \r\n. Každý řádek navíc končí vlastním \r\n, což předtím
+                // rozbíjelo regex (očekával přesný konec řetězce hned za textem zprávy).
+                const lines = event.data.split('\r\n').filter(line => line.length > 0);
+
+                for (const line of lines) {
+                    // Twitch pravidelně posílá PING - musíme odpovědět PONG,
+                    // jinak nás po pár minutách tiše odpojí.
+                    if (line.startsWith('PING')) {
+                        ws.send('PONG :tmi.twitch.tv');
+                        continue;
+                    }
+
+                    if (!line.includes('PRIVMSG')) continue;
+
+                    const matchUser = line.match(/:([a-zA-Z0-9_]+)!/);
                     const username = matchUser ? matchUser[1] : 'unknown';
 
-                    const matchContent = message.match(/PRIVMSG #[a-zA-Z0-9_]+ :(.*)$/);
-                    if (matchContent) {
-                        const text = matchContent[1].trim();
+                    const matchContent = line.match(/PRIVMSG #[a-zA-Z0-9_]+ :(.*)$/);
+                    if (!matchContent) continue;
 
-                        if (lobbyData.status === 'battle') {
-                            if (text === '1' || text === '2') {
-                                try {
-                                    const res = await fetch(`/api/battle?channel=${currentChannel}`);
-                                    if (res.ok) {
-                                        const json = await res.json();
-                                        if (json) lobbyData = json;
-                                    }
-                                } catch(e) {}
+                    const text = matchContent[1].trim();
 
-                                if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
-                                if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
-
-                                if (!lobbyData.votedUsers.includes(username)) {
-                                    lobbyData.votedUsers.push(username);
-                                    lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
-                                    await saveStateToApi(lobbyData);
-                                }
+                    if (isVotingOpen() && (text === '1' || text === '2')) {
+                        try {
+                            const res = await fetch(`/api/battle?channel=${currentChannel}`);
+                            if (res.ok) {
+                                const json = await res.json();
+                                if (json) lobbyData = json;
                             }
+                        } catch(e) {}
+
+                        // Po dotažení čerstvého stavu ověříme znovu - okno pro hlasování
+                        // mohlo mezitím vypršet.
+                        if (!isVotingOpen()) continue;
+
+                        if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
+                        if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
+
+                        if (!lobbyData.votedUsers.includes(username)) {
+                            lobbyData.votedUsers.push(username);
+                            lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
+                            await saveStateToApi(lobbyData);
                         }
                     }
                 }
