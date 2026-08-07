@@ -235,7 +235,7 @@
         <div id="setup-section">
             <h1>🎬 Serial Battle - Nastavení</h1>
             <p style="text-align: center; color: #aaa;">Zadej název svého Twitch kanálu pro spuštění hry.</p>
-            <label>Twitch kanál (např. *lokinotlokicz*):</label>
+            <label>Twitch kanál:</label>
             <input type="text" id="channel-input" placeholder="Zadej jméno kanálu...">
             <button class="btn" onclick="initLobby()">Vytvořit / Připojit se do lobby</button>
         </div>
@@ -250,16 +250,16 @@
                     <span id="conn-text">Chat: Odpojeno</span>
                 </div>
                 <div style="font-size: 13px; color: #aaa;">
-                    🔄 Sync: <span id="sync-status" style="color: #00c853;">Aktivní</span>
+                    🔄 Server: <span id="sync-status" style="color: #00c853;">Připojeno</span>
                 </div>
             </div>
 
             <div id="add-form-container">
                 <h3>Přidej svůj seriál do bitvy</h3>
-                <p style="font-size: 13px; color: #aaa; text-align: center; margin-top: -10px;">Každý uživatel může přidat maximálně 1 seriál!</p>
+                <p style="font-size: 13px; color: #aaa; text-align: center; margin-top: -10px;">Každý uživatel může přidat maximálně 1 seriál! (Napiš název a stiskněte Enter nebo vyber z nabídky)</p>
                 
                 <div class="search-container">
-                    <input type="text" id="show-search-input" placeholder="Zadej název seriálu..." oninput="handleSearchInput(this.value)" autocomplete="off">
+                    <input type="text" id="show-search-input" placeholder="Zadej název seriálu a stiskněte Enter..." oninput="handleSearchInput(this.value)" onkeydown="handleSearchKey(event)" autocomplete="off">
                     <div id="suggestions-box" class="suggestions-dropdown hidden"></div>
                 </div>
             </div>
@@ -342,11 +342,7 @@
         let ws = null;
         let searchTimeout = null;
         let syncInterval = null;
-
-        // Využijeme bezplatný bin endpoint, který spolehlivě vrací a přijímá JSON bez CORS chyb
-        const STORAGE_API_URL = 'https://api.jsonbin.io/v3/b/661e74aead19ca34f8634562'; 
-        // Pozn.: Pro produkční ostrý provoz si můžeš zdarma vytvořit vlastní bin na jsonbin.io a vložit sem jeho ID.
-        // Prozatím využíváme veřejnou testovací bránu.
+        let lastSelectedShow = null;
 
         window.onload = function() {
             const params = new URLSearchParams(window.location.search);
@@ -365,7 +361,7 @@
                 updateUI();
                 alert('Administrace byla úspěšně odemčena!');
             } else {
-                alert('Nesprávné heslo!');
+                alert('Špatné heslo!');
             }
         }
 
@@ -386,50 +382,41 @@
 
             loadStateFromServer();
             if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(loadStateFromServer, 2500); // Stahuje data každých 2.5 vteřiny
+            syncInterval = setInterval(loadStateFromServer, 2000);
 
             connectTwitchChat();
         }
 
-        async function saveState() {
+        async function saveStateToApi(newData) {
             try {
-                // Posíláme data na sdílený server
-                const response = await fetch(STORAGE_API_URL, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Master-Key': '$2a$10$7Xv4...' // Volný testovací klíč / nebo bezhlavý zápis
-                    },
-                    body: JSON.stringify({ channel: currentChannel, data: lobbyData })
+                const res = await fetch('/api/battle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ channel: currentChannel, data: newData })
                 });
-            } catch(e) {
-                // Pokud zlyhá cloud, uložíme lokálně jako zálohu
-                localStorage.setItem('sb_fallback_' + currentChannel, JSON.stringify(lobbyData));
-            }
-            updateUI();
+                if (res.ok) {
+                    const json = await res.json();
+                    lobbyData = json;
+                    updateUI();
+                }
+            } catch(e) {}
         }
 
         async function loadStateFromServer() {
             if (!currentChannel) return;
             try {
-                const res = await fetch(STORAGE_API_URL + '/latest', {
-                    headers: {
-                        'X-Master-Key': '$2a$10$7Xv4...'
-                    }
-                });
+                const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
                     const json = await res.json();
-                    if (json && json.record && json.record.data) {
-                        // Ověříme, že data patří k tomuto kanálu (nebo načteme globální)
-                        lobbyData = json.record.data;
+                    if (json) {
+                        lobbyData = json;
                         updateUI();
-                        document.getElementById('sync-status').innerText = 'Aktivní';
+                        document.getElementById('sync-status').innerText = 'Připojeno';
                         document.getElementById('sync-status').style.color = '#00c853';
-                        return;
                     }
                 }
             } catch(e) {
-                document.getElementById('sync-status').innerText = 'Offline režim';
+                document.getElementById('sync-status').innerText = 'Chyba spojení';
                 document.getElementById('sync-status').style.color = '#eb0400';
             }
         }
@@ -437,14 +424,15 @@
         async function resetLobbyData() {
             if (!isAdmin) return;
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
-                lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
-                await saveState();
+                const emptyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
+                await saveStateToApi(emptyData);
             }
         }
 
         function handleSearchInput(query) {
             clearTimeout(searchTimeout);
             const box = document.getElementById('suggestions-box');
+            lastSelectedShow = null;
             
             if (!query || query.trim().length < 2) {
                 box.classList.add('hidden');
@@ -463,11 +451,16 @@
                         return;
                     }
 
+                    lastSelectedShow = {
+                        title: data[0].show.name,
+                        image: data[0].show.image ? data[0].show.image.medium : 'https://via.placeholder.com/30x40?text=?'
+                    };
+
                     data.slice(0, 5).forEach(item => {
                         const show = item.show;
                         const title = show.name;
                         const year = show.premiered ? show.premiered.substring(0, 4) : '';
-                        const img = show.image ? show.image.medium : 'https://via.placeholder.com/30x40?text=?';
+                        const img = show.image ? show.image.medium : 'https://via.placeholder.com/30x40`text=?';
 
                         const div = document.createElement('div');
                         div.className = 'suggestion-item';
@@ -484,6 +477,20 @@
                     box.classList.add('hidden');
                 }
             }, 300);
+        }
+
+        function handleSearchKey(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const inputVal = document.getElementById('show-search-input').value.trim();
+                if (!inputVal) return;
+
+                if (lastSelectedShow) {
+                    selectShow(lastSelectedShow.title, lastSelectedShow.image);
+                } else {
+                    selectShow(inputVal, 'https://via.placeholder.com/30x40?text=?');
+                }
+            }
         }
 
         function selectShow(title, image) {
@@ -512,13 +519,13 @@
 
             document.getElementById('show-search-input').value = '';
             document.getElementById('suggestions-box').classList.add('hidden');
-            await saveState();
+            await saveStateToApi(lobbyData);
         }
 
         async function removeShow(showId) {
             await loadStateFromServer();
             lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
-            await saveState();
+            await saveStateToApi(lobbyData);
         }
 
         function updateUI() {
@@ -532,7 +539,7 @@
                 adminBattleControls.classList.remove('hidden');
             } else {
                 adminControls.classList.add('hidden');
-                loginBox.classList.remove('hidden');
+                loginBox.classList.add('hidden');
                 adminBattleControls.classList.add('hidden');
             }
 
@@ -600,7 +607,7 @@
             lobbyData.currentPair = [0, 1];
             lobbyData.votes = { 1: 0, 2: 0 };
             lobbyData.votedUsers = [];
-            await saveState();
+            await saveStateToApi(lobbyData);
         }
 
         function updateBattleUI() {
@@ -625,7 +632,7 @@
                 const t2 = document.getElementById('f2-trailer');
                 if (shows[idx2].trailer) {
                     t2.href = shows[idx2].trailer;
-                    t2.classList.remove('hidden');
+                    t2.classList.add('hidden');
                 } else {
                     t2.classList.add('hidden');
                 }
@@ -651,7 +658,7 @@
                 lobbyData.votes = { 1: 0, 2: 0 };
                 lobbyData.votedUsers = [];
             }
-            await saveState();
+            await saveStateToApi(lobbyData);
         }
 
         function connectTwitchChat() {
@@ -689,7 +696,7 @@
                                 if (!lobbyData.votedUsers.includes(username)) {
                                     lobbyData.votedUsers.push(username);
                                     lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
-                                    await saveState();
+                                    await saveStateToApi(lobbyData);
                                 }
                             }
                         }
