@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serial Battle</title>
+    <style>
+        :root {
+            --bg-color: #0e0e10;
+            --panel-bg: #18181b;
+            --text-color: #efeff1;
+            --accent-color: #9146ff;
+            --accent-hover: #772ce8;
+            --danger-color: #eb0400;
+            --border-color: #2f2f35;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+
+        h1, h2 {
+            text-align: center;
+            color: #fff;
+            margin-top: 0;
+        }
+
+        .btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+        }
+        .btn-danger:hover {
+            background-color: #c20300;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            border-radius: 6px;
+            box-sizing: border-box;
+            margin-top: 5px;
+            margin-bottom: 15px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Battle Arena Styly */
+        .battle-arena {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            gap: 20px;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+
+        .fighter-card {
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            width: 350px;
+            padding: 20px;
+            text-align: center;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        .fighter-card img {
+            width: 100%;
+            height: 450px;
+            object-fit: cover;
+            border-radius: 6px;
+            background: #000;
+        }
+
+        .fighter-card h3 {
+            margin: 15px 0 5px 0;
+            font-size: 22px;
+        }
+
+        .vote-count {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin-top: 10px;
+        }
+
+        .chat-instructions {
+            background: rgba(145, 70, 255, 0.1);
+            border: 1px dashed var(--accent-color);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+
+        .list-group {
+            list-style: none;
+            padding: 0;
+            margin: 15px 0;
+        }
+
+        .list-group li {
+            background: var(--bg-color);
+            padding: 10px 15px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .connection-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #eb0400;
+            margin-right: 8px;
+        }
+        .connection-status.connected {
+            background: #00c853;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- SEKCE 1: TVORBA LOBBY -->
+        <div id="setup-section">
+            <h1>🎬 Serial Battle - Nastavení</h1>
+            <p style="text-align: center; color: #aaa;">Zadej název svého Twitch kanálu pro spuštění hry.</p>
+            <label>Twitch kanál (např. *lokinotlokicz*):</label>
+            <input type="text" id="channel-input" placeholder="Zadej jméno kanálu...">
+            <button class="btn" onclick="initLobby()">Vytvořit / Připojit se do lobby</button>
+        </div>
+
+        <!-- SEKCE 2: HLAVNÍ LOBBY (PŘIDÁVÁNÍ KANDIDÁTŮ) -->
+        <div id="lobby-section" class="hidden">
+            <h1 id="lobby-title">Lobby: <span id="display-channel"></span></h1>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: var(--bg-color); padding: 10px 15px; border-radius: 6px; border: 1px solid var(--border-color);">
+                <div>
+                    <span id="conn-indicator" class="connection-status"></span>
+                    <span id="conn-text">Chat: Odpojeno</span>
+                </div>
+                <button class="btn-danger btn" style="width: auto; margin: 0; padding: 6px 12px; font-size: 14px;" onclick="resetLobbyData()">Resetovat celou hru</button>
+            </div>
+
+            <div id="add-form-container">
+                <h3>Přidej svůj seriál do bitvy</h3>
+                <p style="font-size: 13px; color: #aaa; text-align: center; margin-top: -10px;">Každý uživatel může přidat maximálně 1 seriál!</p>
+                <input type="text" id="show-search-input" placeholder="Zadej název seriálu (např. Breaking Bad, Arcane)...">
+                <button class="btn" onclick="addShow()">Přidat seriál</button>
+            </div>
+
+            <div id="already-added-msg" class="hidden" style="text-align: center; background: rgba(0, 200, 83, 0.1); border: 1px solid #00c853; padding: 12px; border-radius: 6px; margin: 15px 0;">
+                ✅ <strong>Váš seriál je úspěšně v seznamu!</strong> Vyčkejte, až streamer spustí bitvu.
+            </div>
+
+            <h3>Seznam přihlášených seriálů (<span id="shows-count">0</span>)</h3>
+            <ul id="shows-list" class="list-group"></ul>
+
+            <button class="btn" id="start-battle-btn" onclick="startBattle()" style="margin-top: 20px; background-color: #00c853;" disabled>Spustit bitvu!</button>
+        </div>
+
+        <!-- SEKCE 3: SAMOTNÁ BITVA (HODNOCENÍ CHATU) -->
+        <div id="battle-section" class="hidden">
+            <h1>🔥 Právě probíhá souboj! 🔥</h1>
+            
+            <div class="chat-instructions">
+                Hlasujte v Twitch chatu napsáním čísla <strong>1</strong> nebo <strong>2</strong>!
+            </div>
+
+            <div class="battle-arena">
+                <!-- Soupeř 1 -->
+                <div class="fighter-card">
+                    <div style="position: absolute; top: 10px; left: 10px; background: var(--accent-color); color: white; padding: 5px 12px; font-weight: bold; border-radius: 4px; font-size: 18px;">1</div>
+                    <img id="f1-img" src="" alt="Seriál 1">
+                    <h3 id="f1-title">Název 1</h3>
+                    <div class="vote-count" id="f1-votes">0</div>
+                </div>
+
+                <h2 style="color: var(--accent-color);">VS</h2>
+
+                <!-- Soupeř 2 -->
+                <div class="fighter-card">
+                    <div style="position: absolute; top: 10px; left: 10px; background: var(--accent-color); color: white; padding: 5px 12px; font-weight: bold; border-radius: 4px; font-size: 18px;">2</div>
+                    <img id="f2-img" src="" alt="Seriál 2">
+                    <h3 id="f2-title">Název 2</h3>
+                    <div class="vote-count" id="f2-votes">0</div>
+                </div>
+            </div>
+
+            <button class="btn btn-danger" onclick="nextRound()" style="margin-top: 20px;">Ukončit / Další kolo</button>
+        </div>
+    </div>
+
+    <script>
+        // Unikátní ID tohoto prohlížeče (zabraňuje přidání vícero seriálů jedním uživatelem)
+        let userId = localStorage.getItem('sb_user_id');
+        if (!userId) {
+            userId = 'user_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            localStorage.setItem('sb_user_id', userId);
+        }
+
+        let currentChannel = '';
+        let lobbyData = {
+            shows: [], //pole objektů: { id, title, image, addedBy }
+            status: 'lobby', // lobby, battle, finished
+            currentPair: [0, 1],
+            votes: { 1: 0, 2: 0 },
+            votedUsers: [] // aby jeden chatter nehlasoval 50x za 1 sekundu
+        };
+
+        let ws = null;
+
+        // Načtení při startu
+        window.onload = function() {
+            const params = new URLSearchParams(window.location.search);
+            const chan = params.get('channel');
+            if (chan) {
+                document.getElementById('channel-input').value = chan;
+                initLobby();
+            }
+        };
+
+        function initLobby() {
+            const input = document.getElementById('channel-input').value.trim().toLowerCase();
+            if (!input) {
+                alert('Zadej název Twitch kanálu!');
+                return;
+            }
+            currentChannel = input;
+
+            // Přidání parametru do URL, aby šel odkaz snadno sdílet
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + encodeURIComponent(currentChannel);
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            loadState();
+            document.getElementById('setup-section').classList.add('hidden');
+            document.getElementById('lobby-section').classList.remove('hidden');
+            document.getElementById('display-channel').innerText = currentChannel;
+
+            connectTwitchChat();
+            setInterval(loadState, 1500); // Synchronizace dat mezi záložkami/uživateli
+        }
+
+        function saveState() {
+            localStorage.setItem('sb_lobby_' + currentChannel, JSON.stringify(lobbyData));
+        }
+
+        function loadState() {
+            const saved = localStorage.getItem('sb_lobby_' + currentChannel);
+            if (saved) {
+                try {
+                    lobbyData = JSON.parse(saved);
+                } catch(e) {}
+            }
+            updateUI();
+        }
+
+        function resetLobbyData() {
+            if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
+                localStorage.removeItem('sb_lobby_' + currentChannel);
+                location.reload();
+            }
+        }
+
+        async function addShow() {
+            const inputVal = document.getElementById('show-search-input').value.trim();
+            if (!inputVal) return;
+
+            // Kontrola, zda už tento uživatel nepřidal svůj jeden seriál
+            const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId);
+            if (alreadyAdded) {
+                alert('Tento prohlížeč již svůj jeden seriál přidal! Každý může přidat pouze jeden.');
+                return;
+            }
+
+            // Dotaz na TVMaze API pro získání obrázku a oficiálního názvu
+            try {
+                const response = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(inputVal)}`);
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    alert('Seriál nebyl na TVMaze nalezen. Zkus jiný název.');
+                    return;
+                }
+
+                const showInfo = data[0].show;
+                const title = showInfo.name;
+                const image = showInfo.image ? showInfo.image.medium : 'https://via.placeholder.com/210x295?text=Bez+obrazku';
+
+                lobbyData.shows.push({
+                    id: Math.random().toString(36).substring(2, 9),
+                    title: title,
+                    image: image,
+                    addedBy: userId
+                });
+
+                document.getElementById('show-search-input').value = '';
+                saveState();
+                updateUI();
+            } catch (err) {
+                alert('Chyba při komunikaci s API seriálů.');
+            }
+        }
+
+        function removeShow(showId) {
+            lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
+            saveState();
+            updateUI();
+        }
+
+        function updateUI() {
+            // Seznam seriálů
+            const listEl = document.getElementById('shows-list');
+            listEl.innerHTML = '';
+            
+            let userHasAdded = false;
+
+            lobbyData.shows.forEach(show => {
+                if (show.addedBy === userId) {
+                    userHasAdded = true;
+                }
+
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <img src="${show.image}" style="width: 35px; height: 50px; object-fit: cover; border-radius: 3px;">
+                        <span><strong>${show.title}</strong></span>
+                    </div>
+                    <button class="btn-danger btn" style="width: auto; margin: 0; padding: 4px 8px; font-size: 12px;" onclick="removeShow('${show.id}')">Smazat</button>
+                `;
+                listEl.appendChild(li);
+            });
+
+            document.getElementById('shows-count').innerText = lobbyData.shows.length;
+
+            // Skrytí/zobrazení formuláře pro přidání podle toho, jestli už uživatel přidal svůj 1 kousek
+            if (userHasAdded) {
+                document.getElementById('add-form-container').classList.add('hidden');
+                document.getElementById('already-added-msg').classList.remove('hidden');
+            } else {
+                document.getElementById('add-form-container').classList.remove('hidden');
+                document.getElementById('already-added-msg').classList.add('hidden');
+            }
+
+            // Tlačítko start (potřeba alespoň 2 seriály)
+            const startBtn = document.getElementById('start-battle-btn');
+            if (lobbyData.shows.length >= 2) {
+                startBtn.removeAttribute('disabled');
+                startBtn.style.opacity = '1';
+            } else {
+                startBtn.setAttribute('disabled', 'true');
+                startBtn.style.opacity = '0.5';
+            }
+
+            // Přepínání obrazovek podle stavu hry
+            if (lobbyData.status === 'battle') {
+                document.getElementById('lobby-section').classList.add('hidden');
+                document.getElementById('battle-section').classList.remove('hidden');
+                updateBattleUI();
+            } else {
+                document.getElementById('battle-section').classList.add('hidden');
+                if (currentChannel) {
+                    document.getElementById('lobby-section').classList.remove('hidden');
+                }
+            }
+        }
+
+        function startBattle() {
+            if (lobbyData.shows.length < 2) return;
+            lobbyData.status = 'battle';
+            lobbyData.currentPair = [0, 1];
+            lobbyData.votes = { 1: 0, 2: 0 };
+            lobbyData.votedUsers = [];
+            saveState();
+            updateUI();
+        }
+
+        function updateBattleUI() {
+            const idx1 = lobbyData.currentPair[0];
+            const idx2 = lobbyData.currentPair[1];
+
+            if (lobbyData.shows[idx1]) {
+                document.getElementById('f1-title').innerText = lobbyData.shows[idx1].title;
+                document.getElementById('f1-img').src = lobbyData.shows[idx1].image;
+            }
+            if (lobbyData.shows[idx2]) {
+                document.getElementById('f2-title').innerText = lobbyData.shows[idx2].title;
+                document.getElementById('f2-img').src = lobbyData.shows[idx2].image;
+            }
+
+            document.getElementById('f1-votes').innerText = lobbyData.votes[1];
+            document.getElementById('f2-votes').innerText = lobbyData.votes[2];
+        }
+
+        function nextRound() {
+            // Posun na další dvojici
+            let next1 = lobbyData.currentPair[1];
+            let next2 = next1 + 1;
+
+            if (next2 >= lobbyData.shows.length) {
+                alert('Turnaj došel do konce! Všechny zápasy proběhly.');
+                lobbyData.status = 'lobby';
+            } else {
+                lobbyData.currentPair = [next1, next2];
+                lobbyData.votes = { 1: 0, 2: 0 };
+                lobbyData.votedUsers = [];
+            }
+            saveState();
+            updateUI();
+        }
+
+        // Připojení k veřejnému Twitch IRC chatu přes WebSocket
+        function connectTwitchChat() {
+            if (ws) {
+                ws.close();
+            }
+
+            ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+            ws.onopen = function() {
+                ws.send('PASS SCHOOTER');
+                ws.send('NICK justinfan' + Math.floor(Math.random() * 80000));
+                ws.send('JOIN #' + currentChannel);
+                
+                document.getElementById('conn-indicator').classList.add('connected');
+                document.getElementById('conn-text').innerText = 'Chat: Připojeno k #' + currentChannel;
+            };
+
+            ws.onmessage = function(event) {
+                const message = event.data;
+                if (message.includes('PRIVMSG')) {
+                    // Parsování zprávy od uživatele
+                    const matchUser = message.match(/:([a-zA-Z0-9_]+)!/);
+                    const username = matchUser ? matchUser[1] : 'unknown';
+
+                    const matchContent = message.match(/PRIVMSG #[a-zA-Z0-9_]+ :(.*)$/);
+                    if (matchContent) {
+                        const text = matchContent[1].trim();
+
+                        // Pokud probíhá bitva, sledujeme hlasy 1 nebo 2
+                        if (lobbyData.status === 'battle') {
+                            if (text === '1' || text === '2') {
+                                // Kontrola, zda už tento uživatel v tomto kole hlasoval
+                                if (!lobbyData.votedUsers.includes(username)) {
+                                    lobbyData.votedUsers.push(username);
+                                    lobbyData.votes[text]++;
+                                    saveState();
+                                    updateBattleUI();
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            ws.onclose = function() {
+                document.getElementById('conn-indicator').classList.remove('connected');
+                document.getElementById('conn-text').innerText = 'Chat: Odpojeno (zkouším obnovit...)';
+                setTimeout(connectTwitchChat, 5000);
+            };
+        }
+    </script>
+</body>
+</html>
