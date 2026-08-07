@@ -398,19 +398,19 @@
             document.getElementById('display-channel').innerText = currentChannel;
             document.getElementById('display-user').innerText = userNick;
 
-            loadStateFromServer(true);
+            loadStateFromServer();
             if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(() => loadStateFromServer(false), 2500);
+            syncInterval = setInterval(loadStateFromServer, 2000);
 
             connectTwitchChat();
         }
 
-        async function saveStateToApi(newData) {
+        async function saveStateToApi(dataToSave) {
             try {
                 const res = await fetch('/api/battle', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ channel: currentChannel, data: newData })
+                    body: JSON.stringify({ channel: currentChannel, data: dataToSave })
                 });
                 if (res.ok) {
                     const json = await res.json();
@@ -422,21 +422,15 @@
             } catch(e) {}
         }
 
-        async function loadStateFromServer(forceUpdateUI = false) {
+        async function loadStateFromServer() {
             if (!currentChannel) return;
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
                     const json = await res.json();
                     if (json) {
-                        // Nekoliduj s lokálně přidávaným obsahem, pokud se neliší délka nebo jde o pozadí
                         lobbyData = json;
-                        if (forceUpdateUI) {
-                            updateUI();
-                        } else {
-                            // Kontrolujeme jen pokud zrovna uživatel nevyplňuje formulář, nebo updatujeme UI na pozadí jemně
-                            updateUI();
-                        }
+                        updateUI();
                         document.getElementById('sync-status').innerText = 'Připojeno';
                         document.getElementById('sync-status').style.color = '#00c853';
                     }
@@ -526,7 +520,7 @@
         }
 
         async function addShowDirect(title, image) {
-            // Nejdříve natáhneme aktuální stav ze serveru, abychom předešli přepsání starými daty
+            // Nejdříve načteme nejčerstvější data ze serveru před přidáním
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
@@ -537,15 +531,15 @@
                 }
             } catch(e) {}
 
-            const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick === userNick));
+            if (!lobbyData.shows) lobbyData.shows = [];
+
+            const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase()));
             if (alreadyAdded) {
                 alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
                 return;
             }
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
-
-            if (!lobbyData.shows) lobbyData.shows = [];
 
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
@@ -560,7 +554,6 @@
             document.getElementById('suggestions-box').classList.add('hidden');
             
             await saveStateToApi(lobbyData);
-            updateUI();
         }
 
         async function removeShow(showId) {
@@ -576,7 +569,6 @@
 
             lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
             await saveStateToApi(lobbyData);
-            updateUI();
         }
 
         function updateUI() {
@@ -601,7 +593,7 @@
             const currentShows = lobbyData.shows || [];
 
             currentShows.forEach(show => {
-                const isOwner = (show.addedBy === userId || (show.addedByNick && show.addedByNick === userNick));
+                const isOwner = (show.addedBy === userId || (show.addedByNick && show.addedByNick.toLowerCase() === userNick.toLowerCase()));
                 if (isOwner) {
                     userHasAdded = true;
                 }
@@ -666,7 +658,7 @@
 
         async function startBattle() {
             if (!isAdmin) return;
-            await loadStateFromServer(true);
+            await loadStateFromServer();
             if (!lobbyData.shows || lobbyData.shows.length < 2) return;
             lobbyData.status = 'battle';
             lobbyData.currentPair = [0, 1];
@@ -710,7 +702,7 @@
 
         async function nextRound() {
             if (!isAdmin) return;
-            await loadStateFromServer(true);
+            await loadStateFromServer();
             const shows = lobbyData.shows || [];
             let next1 = lobbyData.currentPair[1];
             let next2 = next1 + 1;
