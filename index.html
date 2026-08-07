@@ -773,7 +773,7 @@
 
                 const li = document.createElement('li');
                 
-                if (isOwner || isAdmin) {
+                if (isOwner) {
                     li.innerHTML = `
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <img src="${show.image}" style="width: 35px; height: 50px; object-fit: cover; border-radius: 3px;">
@@ -793,6 +793,7 @@
                                 <span style="font-size: 11px; color: #666;">Přidal: ${show.addedByNick || 'Někdo'}</span>
                             </div>
                         </div>
+                        ${isAdmin ? `<button class="btn-danger btn" style="width: auto; margin: 0; padding: 4px 8px; font-size: 12px;" onclick="removeShow('${show.id}')">Smazat</button>` : ''}
                     `;
                 }
                 listEl.appendChild(li);
