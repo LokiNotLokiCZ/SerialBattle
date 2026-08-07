@@ -6,76 +6,77 @@
     <title>Serial Battle</title>
     <style>
         body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-        input, button { padding: 10px; margin: 5px; font-size: 16px; border-radius: 5px; border: none; }
-        input[type="text"], input[type="password"] { width: 70%; background: #2a2a2a; color: #fff; border: 1px solid #444; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        input, button { padding: 12px; margin: 5px; font-size: 16px; border-radius: 5px; border: none; }
+        input[type="text"], input[type="password"] { background: #2a2a2a; color: #fff; border: 1px solid #444; }
         button { background: #6200ee; color: #fff; cursor: pointer; }
         button:hover { background: #3700b3; }
-        .battle-arena { display: flex; justify-content: space-around; align-items: center; margin-top: 20px; }
-        .show-card { background: #2c2c2c; padding: 20px; border-radius: 8px; width: 40%; cursor: pointer; border: 2px solid transparent; }
+        .battle-arena { display: flex; justify-content: space-around; align-items: center; margin-top: 30px; }
+        .show-card { background: #1e1e1e; padding: 30px; border-radius: 10px; width: 40%; cursor: pointer; border: 2px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .show-card:hover { border-color: #6200ee; }
-        .list-item { display: flex; justify-content: space-between; background: #2a2a2a; padding: 8px 12px; margin: 5px 0; border-radius: 4px; align-items: center; }
+        .list-item { display: flex; justify-content: space-between; background: #1e1e1e; padding: 12px 20px; margin: 8px auto; width: 80%; border-radius: 6px; align-items: center; border: 1px solid #333; }
         .hidden-show { color: #888; font-style: italic; }
+        .box { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Serial Battle</h1>
-    <div id="setup-section">
+    
+    <div id="setup-section" class="box">
         <input type="text" id="channel-input" placeholder="Zadej název kanálu (např. mujkanal)">
         <button onclick="joinChannel()">Připojit</button>
     </div>
 
     <div id="app-section" style="display:none;">
-        <h3 id="channel-title"></h3>
+        <h2 id="channel-title" style="color: #bb86fc;"></h2>
 
         <!-- ADMIN SEKCE -->
-        <div id="admin-login-area" style="margin: 15px 0; padding: 10px; background: #252525; border-radius: 5px;">
+        <div id="admin-login-area" class="box" style="max-width: 400px; margin: 0 auto 20px auto;">
             <input type="password" id="admin-pass" placeholder="Admin heslo">
             <button onclick="loginAdmin()">Odemknout Admin</button>
         </div>
-        <div id="admin-controls" style="display:none; margin: 15px 0; padding: 10px; background: #321; border-radius: 5px;">
-            <p style="color: #4cd137; margin: 0 0 10px 0;">✨ Admin režim aktivní</p>
-            <button style="background: #e1b12c;" onclick="startBattle()">Spustit bitvu</button>
-            <button style="background: #c23616;" onclick="resetBattle()">Resetovat vše</button>
+        <div id="admin-controls" class="box" style="display:none; background: #1a2e1a; border-color: #2e7d32; max-width: 500px; margin: 0 auto 20px auto;">
+            <p style="color: #4cd137; margin: 0 0 10px 0; font-weight: bold;">✨ Admin režim aktivní</p>
+            <button style="background: #fbc02d; color: #000; font-weight: bold;" onclick="startBattle()">Spustit bitvu</button>
+            <button style="background: #c62828;" onclick="resetBattle()">Resetovat vše</button>
         </div>
 
         <!-- LOBBY -->
-        <div id="lobby-view">
+        <div id="lobby-view" class="box">
             <h3>Přidej seriál do soutěže</h3>
             <input type="text" id="user-nick" placeholder="Tvůj nick / jméno">
-            <br>
-            <input type="text" id="show-name" placeholder="Název seriálu">
-            <button onclick="addShow()">Přidat</button>
+            <input type="text" id="show-name" placeholder="Název seriálu" style="width: 40%;">
+            <button onclick="addShow()">Přidat do soutěže</button>
             
-            <h3>Seznam přidaných seriálů:</h3>
-            <div id="shows-list" style="max-height: 250px; overflow-y: auto;"></div>
+            <h3 style="margin-top: 30px;">Seznam přidaných seriálů:</h3>
+            <div id="shows-list" style="max-height: 300px; overflow-y: auto;"></div>
         </div>
 
         <!-- BATTLE ARENA -->
-        <div id="battle-view" style="display:none;">
+        <div id="battle-view" class="box" style="display:none;">
             <h2 id="battle-status-text">Hlasování probíhá!</h2>
             <div class="battle-arena">
                 <div class="show-card" onclick="vote(1)">
                     <h2 id="show-title-1">Seriál 1</h2>
-                    <p id="author-1" style="font-size: 12px; color: #aaa;"></p>
-                    <p>Hlasy: <span id="votes-1">0</span></p>
+                    <p id="author-1" style="font-size: 14px; color: #bb86fc;"></p>
+                    <p style="font-size: 18px; margin-top: 15px;">Hlasy: <span id="votes-1" style="font-weight: bold; color: #4cd137;">0</span></p>
                 </div>
-                <h3>VS</h3>
+                <h1 style="color: #666;">VS</h1>
                 <div class="show-card" onclick="vote(2)">
                     <h2 id="show-title-2">Seriál 2</h2>
-                    <p id="author-2" style="font-size: 12px; color: #aaa;"></p>
-                    <p>Hlasy: <span id="votes-2">0</span></p>
+                    <p id="author-2" style="font-size: 14px; color: #bb86fc;"></p>
+                    <p style="font-size: 18px; margin-top: 15px;">Hlasy: <span id="votes-2" style="font-weight: bold; color: #4cd137;">0</span></p>
                 </div>
             </div>
-            <button id="next-pair-btn" style="display:none; margin-top: 20px;" onclick="nextPair()">Další dvojice</button>
+            <button id="next-pair-btn" style="display:none; margin-top: 30px; background: #03dac6; color: #000; font-weight: bold;" onclick="nextPair()">Další dvojice ➡️</button>
         </div>
     </div>
 </div>
 
 <script>
-    // ZDE SI MŮŽEŠ ZMĚNIT ADMIN HESLO:
+    // Nastavené admin heslo:
     const ADMIN_PASSWORD = "AdamovoCelo2026";
 
     let currentChannel = '';
@@ -95,13 +96,12 @@
         document.getElementById('setup-section').style.display = 'none';
         document.getElementById('app-section').style.display = 'block';
         
-        // Načtení nicku z paměti prohlížeče, pokud si ho uživatel pamatoval
         if (localStorage.getItem('serial_battle_nick')) {
             document.getElementById('user-nick').value = localStorage.getItem('serial_battle_nick');
         }
 
         loadData();
-        setInterval(loadData, 2000); // Obnovování každé 2 vteřiny
+        setInterval(loadData, 2000);
     }
 
     function loginAdmin() {
@@ -150,7 +150,6 @@
         if (!nick) return alert('Zadej svůj nick!');
         if (!title) return alert('Zadej název seriálu!');
 
-        // Uložení nicku do prohlížeče pro příště
         localStorage.setItem('serial_battle_nick', nick);
 
         gameState.shows.push({ title: title, author: nick });
@@ -197,7 +196,7 @@
         if (!myNick) return alert('Pro hlasování musíš mít vyplněný nick!');
         
         if (gameState.votedUsers.includes(myNick)) {
-            return alert('Tento uživatel již v tomto kola hlasoval!');
+            return alert('Tento uživatel již v tomto kole hlasoval!');
         }
 
         gameState.votedUsers.push(myNick);
@@ -208,11 +207,11 @@
     }
 
     function nextPair() {
-        const nextIdx1 = gameState.currentPair[1] + 1;
-        const nextIdx2 = gameState.currentPair[1] + 2;
+        const next1 = gameState.currentPair[1] + 1;
+        const next2 = gameState.currentPair[1] + 2;
 
-        if (nextIdx2 < gameState.shows.length) {
-            gameState.currentPair = [nextIdx1, nextIdx2];
+        if (next2 < gameState.shows.length) {
+            gameState.currentPair = [next1, next2];
             gameState.votes = { 1: 0, 2: 0 };
             gameState.votedUsers = [];
         } else {
@@ -231,12 +230,11 @@
 
             let listHtml = '';
             gameState.shows.forEach((s, idx) => {
-                // Pokud to přidal přihlášený uživatel, ukáže se název, cizím se ukáže "Skryto (tajné)"
                 const displayTitle = (s.author === myNick) ? s.title : '<span class="hidden-show">Skryto (tajné) 🔒</span>';
                 
                 listHtml += `<div class="list-item">
                     <span><b>${s.author}:</b> ${displayTitle}</span>
-                    <button style="background:#c23616; padding:4px 8px; font-size:12px;" onclick="removeShow(${idx})">X</button>
+                    <button style="background:#c62828; padding:6px 12px; font-size:14px;" onclick="removeShow(${idx})">Smazat</button>
                 </div>`;
             });
             document.getElementById('shows-list').innerHTML = listHtml;
@@ -248,20 +246,19 @@
             const show1 = gameState.shows[gameState.currentPair[0]];
             const show2 = gameState.shows[gameState.currentPair[1]];
 
-            document.getElementById('show-title-1').innerText = show1 ? show1.title : 'Koniec';
+            document.getElementById('show-title-1').innerText = show1 ? show1.title : 'Konec';
             document.getElementById('author-1').innerText = 'Přidal: ' + (show1 ? show1.author : '');
             
-            document.getElementById('show-title-2').innerText = show2 ? show2.title : 'Koniec';
+            document.getElementById('show-title-2').innerText = show2 ? show2.title : 'Konec';
             document.getElementById('author-2').innerText = 'Přidal: ' + (show2 ? show2.author : '');
 
             document.getElementById('votes-1').innerText = gameState.votes[1];
             document.getElementById('votes-2').innerText = gameState.votes[2];
 
-            // Tlačítko na další dvojici vidí jen admin (nebo kdokoliv, podle toho jak to chceš – tady ho necháme pro zjednodušení zobrazené během bitvy)
             document.getElementById('next-pair-btn').style.display = 'inline-block';
 
         } else if (gameState.status === 'finished') {
-            document.getElementById('battle-view').innerHTML = '<h2>Bitva skončila! Děkujeme za účast.</h2>';
+            document.getElementById('battle-view').innerHTML = '<h2 style="color: #4cd137;">Bitva skončila! Děkujeme za účast v hlasování.</h2>';
         }
     }
 </script>
