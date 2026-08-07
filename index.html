@@ -142,6 +142,90 @@
             display: none !important;
         }
 
+        .bracket-wrap {
+            overflow-x: auto;
+            margin-bottom: 20px;
+            padding: 15px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: rgba(0,0,0,0.25);
+        }
+
+        .bracket {
+            display: flex;
+            align-items: stretch;
+            min-width: max-content;
+            padding: 0 10px;
+        }
+
+        .bracket-round {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            min-width: 160px;
+        }
+
+        .bracket-round-title {
+            text-align: center;
+            font-size: 11px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .bracket-match {
+            position: relative;
+            margin: 6px 18px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        .bracket-match.live {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 8px rgba(145,70,255,0.6);
+        }
+
+        .bracket-match::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            right: -18px;
+            width: 18px;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        .bracket-round:last-child .bracket-match::after {
+            display: none;
+        }
+
+        .bracket-slot {
+            padding: 3px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 150px;
+        }
+
+        .bracket-slot.winner {
+            color: #00c853;
+            font-weight: bold;
+        }
+
+        .bracket-slot.loser {
+            color: #666;
+            text-decoration: line-through;
+        }
+
+        .bracket-slot.bye {
+            color: #555;
+            font-style: italic;
+        }
+
         .battle-arena {
             display: flex;
             justify-content: space-around;
@@ -331,6 +415,10 @@
 
             <div id="voting-status" style="text-align:center; font-weight:bold; margin-bottom: 15px; font-size: 16px;"></div>
 
+            <div id="round-winner-banner" class="hidden" style="text-align:center; font-weight:bold; margin-bottom: 15px; font-size: 20px; color: #ffd700;"></div>
+
+            <div id="bracket-tree" class="bracket-wrap hidden"></div>
+
             <div class="battle-arena">
                 <!-- Soupeř 1 -->
                 <div class="fighter-card">
@@ -370,7 +458,7 @@
                     <button class="btn" id="dur-60-btn" style="background:#444;" onclick="setVotingDuration(60)">60s</button>
                 </div>
                 <button class="btn" id="start-voting-btn" onclick="startVoting()" style="background-color: #00c853; margin-top: 10px;">▶️ Spustit hlasování</button>
-                <button class="btn btn-danger" onclick="nextRound()" style="margin-top: 10px;">Ukončit / Další kolo</button>
+                <button class="btn btn-danger" onclick="nextRound()" style="margin-top: 10px;">🏆 Vyhodnotit a další kolo</button>
             </div>
         </div>
     </div>
@@ -381,7 +469,8 @@
         let lobbyData = {
             shows: [], 
             status: 'lobby', 
-            currentPair: [0, 1],
+            bracket: null,
+            currentMatch: null,
             votes: { 1: 0, 2: 0 },
             votedUsers: [],
             votingEndsAt: null,
@@ -499,7 +588,7 @@
         async function resetLobbyData() {
             if (!isAdmin) return;
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
-                const emptyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [], votingEndsAt: null, votingDuration: 30 };
+                const emptyData = { shows: [], status: 'lobby', bracket: null, currentMatch: null, votes: { 1: 0, 2: 0 }, votedUsers: [], votingEndsAt: null, votingDuration: 30 };
                 await saveStateToApi(emptyData);
             }
         }
@@ -589,6 +678,14 @@
 
             if (!lobbyData.shows) lobbyData.shows = [];
 
+            const MAX_SHOWS = 20;
+            if (lobbyData.shows.length >= MAX_SHOWS) {
+                alert(`Lobby je plná! Maximální počet seriálů je ${MAX_SHOWS}.`);
+                document.getElementById('show-search-input').value = '';
+                updateUI();
+                return;
+            }
+
             // 2. Kontrola duplicity striktně podle Twitch nicku (bez ohledu na ID zařízení)
             const alreadyAdded = lobbyData.shows.some(s => s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase());
             if (alreadyAdded) {
@@ -620,7 +717,8 @@
                 image: image,
                 trailer: trailerUrl,
                 trailerVideoId: trailerVideoId,
-                addedByNick: userNick
+                addedByNick: userNick,
+                eliminated: false
             });
 
             // 5. Vyčištění inputu
@@ -700,7 +798,7 @@
                 listEl.appendChild(li);
             });
 
-            document.getElementById('shows-count').innerText = currentShows.length;
+            document.getElementById('shows-count').innerText = `${currentShows.length}/20`;
 
             if (userHasAdded) {
                 document.getElementById('add-form-container').classList.add('hidden');
@@ -732,12 +830,113 @@
             }
         }
 
+        function shuffleArray(arr) {
+            const a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        function nextPowerOfTwo(n) {
+            let p = 2;
+            while (p < n) p *= 2;
+            return p;
+        }
+
+        // Vytvoří kompletní pavouka: náhodně zamíchá účastníky, doplní na nejbližší
+        // mocninu dvou pomocí "volných losů" (max. 1 volný los na zápas 1. kola,
+        // aby žádný účastník nedostal dva volné losy za sebou) a rovnou je vyřeší.
+        function buildBracket(shows) {
+            const shuffled = shuffleArray(shows.map(s => s.id));
+            const n = shuffled.length;
+            const size = nextPowerOfTwo(n);
+            const round0Count = size / 2;
+            const byesNeeded = size - n;
+
+            const round0 = [];
+            let idx = 0;
+            for (let i = 0; i < byesNeeded; i++) {
+                round0.push({ aId: shuffled[idx], bId: null, winnerId: null });
+                idx++;
+            }
+            while (idx < n) {
+                round0.push({ aId: shuffled[idx], bId: shuffled[idx + 1], winnerId: null });
+                idx += 2;
+            }
+            // Zamícháme pořadí zápasů, ať volné losy nejsou nápadně nahoře v tabulce
+            const round0Shuffled = shuffleArray(round0);
+
+            const rounds = [round0Shuffled];
+            let matchCount = round0Count / 2;
+            while (matchCount >= 1) {
+                const round = [];
+                for (let i = 0; i < matchCount; i++) {
+                    round.push({ aId: null, bId: null, winnerId: null });
+                }
+                rounds.push(round);
+                matchCount = matchCount / 2;
+            }
+
+            resolveByes(rounds);
+            return rounds;
+        }
+
+        // Volné losy mohou vzniknout jen v 1. kole (doplnění na mocninu dvě).
+        // Vyřešíme je a postup pošleme přesně o jedno kolo dál - dál v pavoukovi
+        // už žádné další automatické volné losy vzniknout nemohou, takže se tato
+        // funkce volá jen JEDNOU při vytvoření pavouka, nikdy znovu po zápase.
+        function resolveByes(rounds) {
+            if (rounds.length < 1) return;
+            const round0 = rounds[0];
+            for (let m = 0; m < round0.length; m++) {
+                const match = round0[m];
+                if (match.winnerId) continue;
+                if (match.aId && !match.bId) match.winnerId = match.aId;
+                else if (!match.aId && match.bId) match.winnerId = match.bId;
+
+                if (match.winnerId && rounds.length > 1) {
+                    const nextMatch = rounds[1][Math.floor(m / 2)];
+                    if (m % 2 === 0) nextMatch.aId = match.winnerId;
+                    else nextMatch.bId = match.winnerId;
+                }
+            }
+        }
+
+        function findNextPendingMatch(rounds) {
+            for (let r = 0; r < rounds.length; r++) {
+                for (let m = 0; m < rounds[r].length; m++) {
+                    const match = rounds[r][m];
+                    if (!match.winnerId && match.aId && match.bId) {
+                        return { round: r, match: m };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function getRoundName(matchCount) {
+            const names = { 1: 'Finále', 2: 'Semifinále', 4: 'Čtvrtfinále', 8: 'Osmifinále', 16: '16-finále' };
+            return names[matchCount] || `Kolo (${matchCount * 2} účastníků)`;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.innerText = str;
+            return div.innerHTML;
+        }
+
         async function startBattle() {
             if (!isAdmin) return;
             await loadStateFromServer();
             if (!lobbyData.shows || lobbyData.shows.length < 2) return;
+
+            lobbyData.shows.forEach(s => { s.eliminated = false; });
+            lobbyData.bracket = buildBracket(lobbyData.shows);
+            lobbyData.currentMatch = findNextPendingMatch(lobbyData.bracket);
+
             lobbyData.status = 'battle';
-            lobbyData.currentPair = [0, 1];
             lobbyData.votes = { 1: 0, 2: 0 };
             lobbyData.votedUsers = [];
             lobbyData.votingEndsAt = null;
@@ -782,18 +981,94 @@
             });
         }
 
-        function updateBattleUI() {
-            const shows = lobbyData.shows || [];
-            const idx1 = lobbyData.currentPair ? lobbyData.currentPair[0] : 0;
-            const idx2 = lobbyData.currentPair ? lobbyData.currentPair[1] : 1;
+        function updateRoundWinnerBanner(show1, show2) {
+            const el = document.getElementById('round-winner-banner');
+            if (!el) return;
 
-            if (shows[idx1]) {
-                document.getElementById('f1-title').innerText = shows[idx1].title;
-                loadTrailerIfChanged('f1', shows[idx1]);
+            const votingHasEnded = lobbyData.status === 'battle' && !!lobbyData.votingEndsAt && Date.now() >= lobbyData.votingEndsAt;
+
+            if (!votingHasEnded || !show1 || !show2) {
+                el.classList.add('hidden');
+                el.innerText = '';
+                return;
             }
-            if (shows[idx2]) {
-                document.getElementById('f2-title').innerText = shows[idx2].title;
-                loadTrailerIfChanged('f2', shows[idx2]);
+
+            const votes = lobbyData.votes || { 1: 0, 2: 0 };
+            const v1 = votes[1] || 0;
+            const v2 = votes[2] || 0;
+
+            if (v1 === v2) {
+                el.innerText = '🤝 Remíza! Další kolo rozhodne náhoda.';
+            } else {
+                const winnerTitle = v1 > v2 ? show1.title : show2.title;
+                el.innerText = `🏆 Vítěz kola: ${winnerTitle}!`;
+            }
+            el.classList.remove('hidden');
+        }
+
+        function getCurrentMatchShows() {
+            if (!lobbyData.currentMatch || !lobbyData.bracket) return [null, null];
+            const { round, match } = lobbyData.currentMatch;
+            const m = lobbyData.bracket[round] && lobbyData.bracket[round][match];
+            if (!m) return [null, null];
+            const shows = lobbyData.shows || [];
+            return [
+                shows.find(s => s.id === m.aId) || null,
+                shows.find(s => s.id === m.bId) || null
+            ];
+        }
+
+        function renderBracketTree() {
+            const wrap = document.getElementById('bracket-tree');
+            if (!wrap) return;
+
+            if (!lobbyData.bracket || lobbyData.status !== 'battle') {
+                wrap.innerHTML = '';
+                wrap.classList.add('hidden');
+                return;
+            }
+            wrap.classList.remove('hidden');
+
+            const shows = lobbyData.shows || [];
+            const getTitle = (id) => {
+                if (!id) return null;
+                const s = shows.find(s => s.id === id);
+                return s ? s.title : '???';
+            };
+            const current = lobbyData.currentMatch;
+
+            let html = '<div class="bracket">';
+            lobbyData.bracket.forEach((round, rIdx) => {
+                html += `<div class="bracket-round"><div class="bracket-round-title">${getRoundName(round.length)}</div>`;
+                round.forEach((m, mIdx) => {
+                    const isLive = current && current.round === rIdx && current.match === mIdx;
+                    const aTitle = getTitle(m.aId);
+                    const bTitle = getTitle(m.bId);
+                    const aClass = m.winnerId ? (m.winnerId === m.aId ? 'winner' : 'loser') : '';
+                    const bClass = m.winnerId ? (m.winnerId === m.bId ? 'winner' : 'loser') : '';
+
+                    html += `<div class="bracket-match${isLive ? ' live' : ''}">`;
+                    html += `<div class="bracket-slot ${aTitle ? aClass : 'bye'}">${aTitle ? escapeHtml(aTitle) : (m.aId === null ? '— volný los —' : '?')}</div>`;
+                    html += `<div class="bracket-slot ${bTitle ? bClass : 'bye'}">${bTitle ? escapeHtml(bTitle) : (m.bId === null ? '— volný los —' : '?')}</div>`;
+                    html += `</div>`;
+                });
+                html += `</div>`;
+            });
+            html += '</div>';
+
+            wrap.innerHTML = html;
+        }
+
+        function updateBattleUI() {
+            const [show1, show2] = getCurrentMatchShows();
+
+            if (show1) {
+                document.getElementById('f1-title').innerText = show1.title;
+                loadTrailerIfChanged('f1', show1);
+            }
+            if (show2) {
+                document.getElementById('f2-title').innerText = show2.title;
+                loadTrailerIfChanged('f2', show2);
             }
 
             const votes = lobbyData.votes || { 1: 0, 2: 0 };
@@ -801,23 +1076,53 @@
             document.getElementById('f2-votes').innerText = votes[2] || 0;
 
             updateVotingCountdown();
+            updateRoundWinnerBanner(show1, show2);
+            renderBracketTree();
         }
 
         async function nextRound() {
             if (!isAdmin) return;
             await loadStateFromServer();
-            const shows = lobbyData.shows || [];
-            let next1 = lobbyData.currentPair[1];
-            let next2 = next1 + 1;
 
-            if (next2 >= shows.length) {
-                alert('Turnaj došel do konce! Všechny zápasy proběhly.');
-                lobbyData.status = 'lobby';
-            } else {
-                lobbyData.currentPair = [next1, next2];
+            if (!lobbyData.currentMatch || !lobbyData.bracket) return;
+            const { round, match } = lobbyData.currentMatch;
+            const m = lobbyData.bracket[round][match];
+            if (!m) return;
+
+            const votes = lobbyData.votes || { 1: 0, 2: 0 };
+            const v1 = votes[1] || 0;
+            const v2 = votes[2] || 0;
+
+            let winnerId;
+            if (v1 > v2) winnerId = m.aId;
+            else if (v2 > v1) winnerId = m.bId;
+            else winnerId = Math.random() < 0.5 ? m.aId : m.bId; // remíza - rozhodne náhoda
+
+            m.winnerId = winnerId;
+
+            const loserId = winnerId === m.aId ? m.bId : m.aId;
+            const loserShow = (lobbyData.shows || []).find(s => s.id === loserId);
+            if (loserShow) loserShow.eliminated = true;
+
+            if (round + 1 < lobbyData.bracket.length) {
+                const nextMatch = lobbyData.bracket[round + 1][Math.floor(match / 2)];
+                if (match % 2 === 0) nextMatch.aId = winnerId;
+                else nextMatch.bId = winnerId;
+            }
+
+            const next = findNextPendingMatch(lobbyData.bracket);
+
+            if (next) {
+                lobbyData.currentMatch = next;
                 lobbyData.votes = { 1: 0, 2: 0 };
                 lobbyData.votedUsers = [];
+            } else {
+                const champion = (lobbyData.shows || []).find(s => s.id === winnerId);
+                alert(`🏆 Turnaj vyhrál: ${champion ? champion.title : '?'}!`);
+                lobbyData.status = 'lobby';
+                lobbyData.currentMatch = null;
             }
+
             lobbyData.votingEndsAt = null;
             await saveStateToApi(lobbyData);
         }
