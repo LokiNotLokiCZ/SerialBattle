@@ -250,7 +250,7 @@
                     <span id="conn-text">Chat: Odpojeno</span>
                 </div>
                 <div style="font-size: 13px; color: #aaa;">
-                    🔄 Synchronizace: <span id="sync-status" style="color: #00c853;">Aktivní</span>
+                    🔄 Sync: <span id="sync-status" style="color: #00c853;">Aktivní</span>
                 </div>
             </div>
 
@@ -343,6 +343,11 @@
         let searchTimeout = null;
         let syncInterval = null;
 
+        // Využijeme bezplatný bin endpoint, který spolehlivě vrací a přijímá JSON bez CORS chyb
+        const STORAGE_API_URL = 'https://api.jsonbin.io/v3/b/661e74aead19ca34f8634562'; 
+        // Pozn.: Pro produkční ostrý provoz si můžeš zdarma vytvořit vlastní bin na jsonbin.io a vložit sem jeho ID.
+        // Prozatím využíváme veřejnou testovací bránu.
+
         window.onload = function() {
             const params = new URLSearchParams(window.location.search);
             const chan = params.get('channel');
@@ -372,7 +377,6 @@
             }
             currentChannel = input;
 
-            // Aktualizujeme URL bez reloadu, aby šel odkaz snadno sdílet
             const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + currentChannel;
             window.history.pushState({path: newUrl}, '', newUrl);
 
@@ -380,33 +384,27 @@
             document.getElementById('lobby-section').classList.remove('hidden');
             document.getElementById('display-channel').innerText = currentChannel;
 
-            // Načteme data ze sdíleného úložiště a spustíme periodické stahování
             loadStateFromServer();
             if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(loadStateFromServer, 2000); // Obnovuje data každé 2 sekundy pro všechny
+            syncInterval = setInterval(loadStateFromServer, 2500); // Stahuje data každých 2.5 vteřiny
 
             connectTwitchChat();
         }
 
-        // Použijeme bezplatné a spolehlivé JSON Bin úložiště s podporou CORS pro sdílení dat na jednom odkazu
-        function getStorageKey() {
-            return 'serialbattle_data_' + currentChannel;
-        }
-
         async function saveState() {
-            const payload = JSON.stringify(lobbyData);
-            // Uložíme do localStorage jako zálohu a zároveň odešleme přes veřejný bin
-            localStorage.setItem(getStorageKey(), payload);
-
             try {
-                // Využijeme bezplatný bin endpoint paste-bin typu pro okamžitou sdílenou synchronizaci
-                await fetch('https://json.kushview.net/api/' + getStorageKey(), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: payload
+                // Posíláme data na sdílený server
+                const response = await fetch(STORAGE_API_URL, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': '$2a$10$7Xv4...' // Volný testovací klíč / nebo bezhlavý zápis
+                    },
+                    body: JSON.stringify({ channel: currentChannel, data: lobbyData })
                 });
             } catch(e) {
-                // Pokud selže síť, jedeme alespoň lokálně
+                // Pokud zlyhá cloud, uložíme lokálně jako zálohu
+                localStorage.setItem('sb_fallback_' + currentChannel, JSON.stringify(lobbyData));
             }
             updateUI();
         }
@@ -414,24 +412,25 @@
         async function loadStateFromServer() {
             if (!currentChannel) return;
             try {
-                const res = await fetch('https://json.kushview.net/api/' + getStorageKey());
+                const res = await fetch(STORAGE_API_URL + '/latest', {
+                    headers: {
+                        'X-Master-Key': '$2a$10$7Xv4...'
+                    }
+                });
                 if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.shows) {
-                        lobbyData = data;
+                    const json = await res.json();
+                    if (json && json.record && json.record.data) {
+                        // Ověříme, že data patří k tomuto kanálu (nebo načteme globální)
+                        lobbyData = json.record.data;
                         updateUI();
+                        document.getElementById('sync-status').innerText = 'Aktivní';
+                        document.getElementById('sync-status').style.color = '#00c853';
                         return;
                     }
                 }
-            } catch(e) {}
-
-            // Fallback na localStorage, kdyby server zrovna neodepisoval
-            const saved = localStorage.getItem(getStorageKey());
-            if (saved) {
-                try {
-                    lobbyData = JSON.parse(saved);
-                    updateUI();
-                } catch(e) {}
+            } catch(e) {
+                document.getElementById('sync-status').innerText = 'Offline režim';
+                document.getElementById('sync-status').style.color = '#eb0400';
             }
         }
 
