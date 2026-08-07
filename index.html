@@ -162,12 +162,22 @@
             position: relative;
         }
 
-        .fighter-card img {
+        .trailer-wrap {
+            position: relative;
             width: 100%;
-            height: 400px;
-            object-fit: cover;
-            border-radius: 6px;
+            padding-top: 56.25%; /* 16:9 */
             background: #000;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .trailer-frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
         }
 
         .fighter-card h3 {
@@ -301,10 +311,11 @@
             <div class="battle-arena">
                 <!-- Soupeř 1 -->
                 <div class="fighter-card">
-                    <div style="position: absolute; top: 10px; left: 10px; background: var(--accent-color); color: white; padding: 5px 12px; font-weight: bold; border-radius: 4px; font-size: 18px;">1</div>
-                    <img id="f1-img" src="" alt="Seriál 1">
+                    <div style="position: absolute; top: 10px; left: 10px; background: var(--accent-color); color: white; padding: 5px 12px; font-weight: bold; border-radius: 4px; font-size: 18px; z-index: 2;">1</div>
+                    <div class="trailer-wrap">
+                        <iframe id="f1-video" class="trailer-frame" src="" title="Trailer 1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                    </div>
                     <h3 id="f1-title">Název 1</h3>
-                    <a id="f1-trailer" href="#" target="_blank" class="btn-trailer hidden">▶ Přehrát trailer</a>
                     <div class="vote-count" id="f1-votes">0</div>
                 </div>
 
@@ -312,10 +323,11 @@
 
                 <!-- Soupeř 2 -->
                 <div class="fighter-card">
-                    <div style="position: absolute; top: 10px; left: 10px; background: var(--accent-color); color: white; padding: 5px 12px; font-weight: bold; border-radius: 4px; font-size: 18px;">2</div>
-                    <img id="f2-img" src="" alt="Seriál 2">
+                    <div style="position: absolute; top: 10px; left: 10px; background: var(--accent-color); color: white; padding: 5px 12px; font-weight: bold; border-radius: 4px; font-size: 18px; z-index: 2;">2</div>
+                    <div class="trailer-wrap">
+                        <iframe id="f2-video" class="trailer-frame" src="" title="Trailer 2" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                    </div>
                     <h3 id="f2-title">Název 2</h3>
-                    <a id="f2-trailer" href="#" target="_blank" class="btn-trailer hidden">▶ Přehrát trailer</a>
                     <div class="vote-count" id="f2-votes">0</div>
                 </div>
             </div>
@@ -668,6 +680,7 @@
                 updateBattleUI();
             } else {
                 document.getElementById('battle-section').classList.add('hidden');
+                stopTrailers();
                 if (currentChannel) {
                     document.getElementById('lobby-section').classList.remove('hidden');
                 }
@@ -686,6 +699,32 @@
             await saveStateToApi(lobbyData);
         }
 
+        function buildTrailerEmbedUrl(title) {
+            const query = encodeURIComponent(title + ' official trailer');
+            return `https://www.youtube.com/embed?listType=search&list=${query}&autoplay=1&mute=1&rel=0`;
+        }
+
+        function loadTrailerIfChanged(videoElId, title) {
+            const frame = document.getElementById(videoElId);
+            if (!frame || !title) return;
+            // Only reload the embed when the show actually changed - otherwise
+            // the periodic 2s state poll would keep restarting the video.
+            if (frame.dataset.title !== title) {
+                frame.src = buildTrailerEmbedUrl(title);
+                frame.dataset.title = title;
+            }
+        }
+
+        function stopTrailers() {
+            ['f1-video', 'f2-video'].forEach(id => {
+                const frame = document.getElementById(id);
+                if (frame) {
+                    frame.src = '';
+                    frame.dataset.title = '';
+                }
+            });
+        }
+
         function updateBattleUI() {
             const shows = lobbyData.shows || [];
             const idx1 = lobbyData.currentPair ? lobbyData.currentPair[0] : 0;
@@ -693,25 +732,11 @@
 
             if (shows[idx1]) {
                 document.getElementById('f1-title').innerText = shows[idx1].title;
-                document.getElementById('f1-img').src = shows[idx1].image;
-                const t1 = document.getElementById('f1-trailer');
-                if (shows[idx1].trailer) {
-                    t1.href = shows[idx1].trailer;
-                    t1.classList.remove('hidden');
-                } else {
-                    t1.classList.add('hidden');
-                }
+                loadTrailerIfChanged('f1-video', shows[idx1].title);
             }
             if (shows[idx2]) {
                 document.getElementById('f2-title').innerText = shows[idx2].title;
-                document.getElementById('f2-img').src = shows[idx2].image;
-                const t2 = document.getElementById('f2-trailer');
-                if (shows[idx2].trailer) {
-                    t2.href = shows[idx2].trailer;
-                    t2.classList.remove('hidden');
-                } else {
-                    t2.classList.add('hidden');
-                }
+                loadTrailerIfChanged('f2-video', shows[idx2].title);
             }
 
             const votes = lobbyData.votes || { 1: 0, 2: 0 };
