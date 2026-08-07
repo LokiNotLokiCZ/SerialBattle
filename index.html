@@ -250,7 +250,7 @@
                     <span id="conn-text">Chat: Odpojeno</span>
                 </div>
                 <div style="font-size: 13px; color: #aaa;">
-                    🔄 Server: <span id="sync-status" style="color: #00c853;">Připojeno</span>
+                    🔄 Sync: <span id="sync-status" style="color: #00c853;">Aktivní</span>
                 </div>
             </div>
 
@@ -387,36 +387,38 @@
             connectTwitchChat();
         }
 
+        // Využijeme spolehlivou veřejnou testovací bránu npoint.io pro ukládání dat
+        function getBinId() {
+            return 'serialbattle_' + currentChannel;
+        }
+
         async function saveStateToApi(newData) {
             try {
-                const res = await fetch('/api/battle', {
+                await fetch('https://api.npoint.io/bin_' + getBinId(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ channel: currentChannel, data: newData })
+                    body: JSON.stringify(newData)
                 });
-                if (res.ok) {
-                    const json = await res.json();
-                    lobbyData = json;
-                    updateUI();
-                }
+                lobbyData = newData;
+                updateUI();
             } catch(e) {}
         }
 
         async function loadStateFromServer() {
             if (!currentChannel) return;
             try {
-                const res = await fetch(`/api/battle?channel=${currentChannel}`);
+                const res = await fetch('https://api.npoint.io/bin_' + getBinId());
                 if (res.ok) {
                     const json = await res.json();
-                    if (json) {
+                    if (json && json.shows) {
                         lobbyData = json;
                         updateUI();
-                        document.getElementById('sync-status').innerText = 'Připojeno';
+                        document.getElementById('sync-status').innerText = 'Aktivní';
                         document.getElementById('sync-status').style.color = '#00c853';
                     }
                 }
             } catch(e) {
-                document.getElementById('sync-status').innerText = 'Chyba spojení';
+                document.getElementById('sync-status').innerText = 'Offline';
                 document.getElementById('sync-status').style.color = '#eb0400';
             }
         }
@@ -460,7 +462,7 @@
                         const show = item.show;
                         const title = show.name;
                         const year = show.premiered ? show.premiered.substring(0, 4) : '';
-                        const img = show.image ? show.image.medium : 'https://via.placeholder.com/30x40`text=?';
+                        const img = show.image ? show.image.medium : 'https://via.placeholder.com/30x40?text=?';
 
                         const div = document.createElement('div');
                         div.className = 'suggestion-item';
@@ -632,7 +634,7 @@
                 const t2 = document.getElementById('f2-trailer');
                 if (shows[idx2].trailer) {
                     t2.href = shows[idx2].trailer;
-                    t2.classList.add('hidden');
+                    t2.classList.remove('hidden');
                 } else {
                     t2.classList.add('hidden');
                 }
