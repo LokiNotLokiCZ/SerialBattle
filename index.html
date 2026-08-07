@@ -488,7 +488,10 @@
                             <img src="${img}">
                             <span>${title} ${year ? '(' + year + ')' : ''}</span>
                         `;
-                        div.onclick = () => selectShow(title, img);
+                        div.onclick = () => {
+                            box.classList.add('hidden');
+                            addShowDirect(title, img);
+                        };
                         box.appendChild(div);
                     });
 
@@ -505,22 +508,20 @@
                 const inputVal = document.getElementById('show-search-input').value.trim();
                 if (!inputVal) return;
 
+                document.getElementById('suggestions-box').classList.add('hidden');
+
                 if (lastSelectedShow) {
-                    selectShow(lastSelectedShow.title, lastSelectedShow.image);
+                    addShowDirect(lastSelectedShow.title, lastSelectedShow.image);
                 } else {
-                    selectShow(inputVal, 'https://via.placeholder.com/30x40?text=?');
+                    addShowDirect(inputVal, 'https://via.placeholder.com/30x40?text=?');
                 }
             }
         }
 
-        function selectShow(title, image) {
-            document.getElementById('show-search-input').value = title;
-            document.getElementById('suggestions-box').classList.add('hidden');
-            addShowDirect(title, image);
-        }
-
         async function addShowDirect(title, image) {
-            // Vynucení stažení aktuálního stavu před kontrolou a přidáním
+            if (!currentChannel) return;
+
+            // 1. Získáme nejnovější data ze serveru před pokusem o zápis
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
@@ -533,15 +534,18 @@
 
             if (!lobbyData.shows) lobbyData.shows = [];
 
+            // 2. Kontrola duplicity
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase()));
             if (alreadyAdded) {
                 alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
+                document.getElementById('show-search-input').value = '';
                 updateUI();
                 return;
             }
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
 
+            // 3. Přidání položky do pole
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
                 title: title,
@@ -551,8 +555,9 @@
                 addedByNick: userNick
             });
 
+            // 4. Vyčištění inputu a uložení na server
             document.getElementById('show-search-input').value = '';
-            document.getElementById('suggestions-box').classList.add('hidden');
+            lastSelectedShow = null;
             
             await saveStateToApi(lobbyData);
         }
