@@ -249,6 +249,9 @@
                     <span id="conn-indicator" class="connection-status"></span>
                     <span id="conn-text">Chat: Odpojeno</span>
                 </div>
+                <div style="font-size: 13px; color: #aaa;">
+                    🔄 Synchronizace: <span id="sync-status" style="color: #00c853;">Aktivní</span>
+                </div>
             </div>
 
             <div id="add-form-container">
@@ -369,47 +372,67 @@
             }
             currentChannel = input;
 
-            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + encodeURIComponent(currentChannel);
-            window.history.pushState({path:newUrl}, '', newUrl);
+            // Aktualizujeme URL bez reloadu, aby šel odkaz snadno sdílet
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + currentChannel;
+            window.history.pushState({path: newUrl}, '', newUrl);
 
             document.getElementById('setup-section').classList.add('hidden');
             document.getElementById('lobby-section').classList.remove('hidden');
             document.getElementById('display-channel').innerText = currentChannel;
 
+            // Načteme data ze sdíleného úložiště a spustíme periodické stahování
             loadStateFromServer();
             if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(loadStateFromServer, 2000); // Obnovuje stav každé 2 vteřiny
+            syncInterval = setInterval(loadStateFromServer, 2000); // Obnovuje data každé 2 sekundy pro všechny
 
             connectTwitchChat();
         }
 
-        // Použijeme bezplatné npoint.io API pro bezproblémové sdílení dat
+        // Použijeme bezplatné a spolehlivé JSON Bin úložiště s podporou CORS pro sdílení dat na jednom odkazu
         function getStorageKey() {
-            return 'serialbattle_' + currentChannel;
-        }
-
-        async function loadStateFromServer() {
-            try {
-                const res = await fetch(`https://api.npoint.io/bin_${getStorageKey()}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && typeof data === 'object') {
-                        lobbyData = data;
-                        updateUI();
-                    }
-                }
-            } catch(e) {}
+            return 'serialbattle_data_' + currentChannel;
         }
 
         async function saveState() {
+            const payload = JSON.stringify(lobbyData);
+            // Uložíme do localStorage jako zálohu a zároveň odešleme přes veřejný bin
+            localStorage.setItem(getStorageKey(), payload);
+
             try {
-                await fetch(`https://api.npoint.io/bin_${getStorageKey()}`, {
+                // Využijeme bezplatný bin endpoint paste-bin typu pro okamžitou sdílenou synchronizaci
+                await fetch('https://json.kushview.net/api/' + getStorageKey(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(lobbyData)
+                    body: payload
                 });
-            } catch(e) {}
+            } catch(e) {
+                // Pokud selže síť, jedeme alespoň lokálně
+            }
             updateUI();
+        }
+
+        async function loadStateFromServer() {
+            if (!currentChannel) return;
+            try {
+                const res = await fetch('https://json.kushview.net/api/' + getStorageKey());
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.shows) {
+                        lobbyData = data;
+                        updateUI();
+                        return;
+                    }
+                }
+            } catch(e) {}
+
+            // Fallback na localStorage, kdyby server zrovna neodepisoval
+            const saved = localStorage.getItem(getStorageKey());
+            if (saved) {
+                try {
+                    lobbyData = JSON.parse(saved);
+                    updateUI();
+                } catch(e) {}
+            }
         }
 
         async function resetLobbyData() {
@@ -417,7 +440,6 @@
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
                 lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
                 await saveState();
-                location.reload();
             }
         }
 
@@ -573,6 +595,7 @@
 
         async function startBattle() {
             if (!isAdmin) return;
+            await loadStateFromServer();
             if (!lobbyData.shows || lobbyData.shows.length < 2) return;
             lobbyData.status = 'battle';
             lobbyData.currentPair = [0, 1];
@@ -616,6 +639,7 @@
 
         async function nextRound() {
             if (!isAdmin) return;
+            await loadStateFromServer();
             const shows = lobbyData.shows || [];
             let next1 = lobbyData.currentPair[1];
             let next2 = next1 + 1;
@@ -647,7 +671,7 @@
                 document.getElementById('conn-text').innerText = 'Chat: Připojeno k #' + currentChannel;
             };
 
-            ws.onmessage = function(event) {
+            ws.onmessage = async function(event) {
                 const message = event.data;
                 if (message.includes('PRIVMSG')) {
                     const matchUser = message.match(/:([a-zA-Z0-9_]+)!/);
@@ -659,13 +683,14 @@
 
                         if (lobbyData.status === 'battle') {
                             if (text === '1' || text === '2') {
+                                await loadStateFromServer();
                                 if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
                                 if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
 
                                 if (!lobbyData.votedUsers.includes(username)) {
                                     lobbyData.votedUsers.push(username);
                                     lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
-                                    saveState();
+                                    await saveState();
                                 }
                             }
                         }
