@@ -256,7 +256,7 @@
 
             <div id="add-form-container">
                 <h3>Přidej svůj seriál do bitvy</h3>
-                <p style="font-size: 13px; color: #aaa; text-align: center; margin-top: -10px;">Každý uživatel může přidat maximálně 1 seriál! (Napiš název a stiskněte Enter nebo vyber z nabídky)</p>
+                <p style="font-size: 13px; color: #aaa; text-align: center; margin-top: -10px;">Každé zařízení může přidat maximálně 1 seriál! (Napiš název a stiskněte Enter nebo vyber z nabídky)</p>
                 
                 <div class="search-container">
                     <input type="text" id="show-search-input" placeholder="Zadej název seriálu a stiskněte Enter..." oninput="handleSearchInput(this.value)" onkeydown="handleSearchKey(event)" autocomplete="off">
@@ -265,7 +265,7 @@
             </div>
 
             <div id="already-added-msg" class="hidden" style="text-align: center; background: rgba(0, 200, 83, 0.1); border: 1px solid #00c853; padding: 12px; border-radius: 6px; margin: 15px 0;">
-                ✅ <strong>Váš seriál je úspěšně v seznamu!</strong> Vyčkejte, až streamer spustí bitvu.
+                ✅ <strong>Z tohoto zařízení byl seriál úspěšně přidán!</strong> Vyčkejte, až streamer spustí bitvu.
             </div>
 
             <h3>Seznam přihlášených seriálů (<span id="shows-count">0</span>)</h3>
@@ -387,19 +387,11 @@
             connectTwitchChat();
         }
 
-        // Spolehlivá klíčová cesta pro sdílené úložiště postavené na kv.io / paste API
-        function getStorageKey() {
-            // Použijeme bezplatný bin endpoint postavený na npoint.io / api klonu, nebo bezpečný pastebin
-            return 'serialbattle_' + currentChannel;
-        }
-
         async function saveStateToApi(newData) {
             lobbyData = newData;
             updateUI();
             try {
-                localStorage.setItem(getStorageKey(), JSON.stringify(newData));
-                // Použijeme robustní veřejný JSON hosting (api.jsonbin.it / JSONbin alternativu)
-                await fetch('https://kass.space/api/' + getStorageKey(), {
+                await fetch('/api/data?channel=' + currentChannel, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newData)
@@ -410,7 +402,7 @@
         async function loadStateFromServer() {
             if (!currentChannel) return;
             try {
-                const res = await fetch('https://kass.space/api/' + getStorageKey(), { cache: 'no-store' });
+                const res = await fetch('/api/data?channel=' + currentChannel, { cache: 'no-store' });
                 if (res.ok) {
                     const json = await res.json();
                     if (json && Array.isArray(json.shows)) {
@@ -418,18 +410,11 @@
                         updateUI();
                         document.getElementById('sync-status').innerText = 'Aktivní';
                         document.getElementById('sync-status').style.color = '#00c853';
-                        return;
                     }
                 }
-            } catch(e) {}
-
-            // Fallback na lokální úložiště
-            const local = localStorage.getItem(getStorageKey());
-            if (local) {
-                try {
-                    lobbyData = JSON.parse(local);
-                    updateUI();
-                } catch(e) {}
+            } catch(e) {
+                document.getElementById('sync-status').innerText = 'Offline';
+                document.getElementById('sync-status').style.color = '#eb0400';
             }
         }
 
@@ -515,7 +500,7 @@
             await loadStateFromServer();
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId);
             if (alreadyAdded) {
-                alert('Z tohohle zařízení už byl přidán seriál! Každý může přidat pouze jeden.');
+                alert('Z tohoto zařízení už byl přidán seriál! Každé zařízení může přidat pouze jeden.');
                 return;
             }
 
@@ -697,17 +682,16 @@
 
                     const matchContent = message.match(/PRIVMSG #[a-zA-Z0-9_]+ :(.*)$/);
                     if (matchContent) {
-                        const text = message.includes('PRIVMSG') ? message.split(' :')[1]?.trim() : '';
+                        const text = matchContent[1].trim();
                         if (lobbyData.status === 'battle') {
-                            const voteVal = text;
-                            if (voteVal === '1' || voteVal === '2') {
+                            if (text === '1' || text === '2') {
                                 await loadStateFromServer();
                                 if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
                                 if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
 
                                 if (!lobbyData.votedUsers.includes(username)) {
                                     lobbyData.votedUsers.push(username);
-                                    lobbyData.votes[voteVal] = (lobbyData.votes[voteVal] || 0) + 1;
+                                    lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
                                     await saveStateToApi(lobbyData);
                                 }
                             }
@@ -719,7 +703,7 @@
             ws.onclose = function() {
                 document.getElementById('conn-indicator').classList.remove('connected');
                 document.getElementById('conn-text').innerText = 'Chat: Odpojeno (zkouším obnovit...)';
-                setTimeout(connectTwitchChat, 5000);
+                setTimeout(connectTwStatusCheck, 5000);
             };
         }
     </script>
