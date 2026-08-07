@@ -326,12 +326,6 @@
 
     <script>
         let userNick = localStorage.getItem('sb_user_nick') || '';
-        let userId = localStorage.getItem('sb_user_id');
-        if (!userId) {
-            userId = 'user_' + Math.random().toString(36).substring(2, 15);
-            localStorage.setItem('sb_user_id', userId);
-        }
-
         let currentChannel = '';
         let lobbyData = {
             shows: [], 
@@ -523,7 +517,7 @@
         async function addShowDirect(title, image) {
             if (!currentChannel) return;
 
-            // Okamžitě si natáhneme aktuální data ze serveru, aby jsme předešli konfliktu verzí
+            // 1. Vždy načteme nejaktuálnější stav ze serveru
             try {
                 const res = await fetch(`/api/battle?channel=${currentChannel}`);
                 if (res.ok) {
@@ -536,10 +530,10 @@
 
             if (!lobbyData.shows) lobbyData.shows = [];
 
-            // Bezpečná kontrola duplicity podle ID zařízení nebo nicku
-            const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase()));
+            // 2. Kontrola duplicity striktně podle Twitch nicku (bez ohledu na ID zařízení)
+            const alreadyAdded = lobbyData.shows.some(s => s.addedByNick && s.addedByNick.toLowerCase() === userNick.toLowerCase());
             if (alreadyAdded) {
-                alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
+                alert('Pod tímto Twitch nickem už byl přidán seriál! Každý může přidat pouze jeden.');
                 document.getElementById('show-search-input').value = '';
                 updateUI();
                 return;
@@ -547,21 +541,20 @@
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
 
-            // Přidáme nový seriál do lokální kopie
+            // 3. Vložení nového seriálu
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
                 title: title,
                 image: image,
                 trailer: trailerUrl,
-                addedBy: userId,
                 addedByNick: userNick
             });
 
-            // Vyčištění vyhledávání
+            // 4. Vyčištění inputu
             document.getElementById('show-search-input').value = '';
             lastSelectedShow = null;
             
-            // Uložení na server a okamžitá aktualizace rozhraní
+            // 5. Uložení na server
             await saveStateToApi(lobbyData);
         }
 
@@ -602,7 +595,7 @@
             const currentShows = lobbyData.shows || [];
 
             currentShows.forEach(show => {
-                const isOwner = (show.addedBy === userId || (show.addedByNick && show.addedByNick.toLowerCase() === userNick.toLowerCase()));
+                const isOwner = (show.addedByNick && show.addedByNick.toLowerCase() === userNick.toLowerCase());
                 if (isOwner) {
                     userHasAdded = true;
                 }
