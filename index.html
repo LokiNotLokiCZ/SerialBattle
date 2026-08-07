@@ -6,17 +6,17 @@
     <title>Serial Battle</title>
     <style>
         body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
         input, button { padding: 12px; margin: 5px; font-size: 16px; border-radius: 5px; border: none; }
-        input[type="text"], input[type="password"] { background: #2a2a2a; color: #fff; border: 1px solid #444; }
-        button { background: #6200ee; color: #fff; cursor: pointer; }
+        input[type="text"], input[type="password"] { background: #2a2a2a; color: #fff; border: 1px solid #444; width: 60%; }
+        button { background: #6200ee; color: #fff; cursor: pointer; font-weight: bold; }
         button:hover { background: #3700b3; }
         .battle-arena { display: flex; justify-content: space-around; align-items: center; margin-top: 30px; }
         .show-card { background: #1e1e1e; padding: 30px; border-radius: 10px; width: 40%; cursor: pointer; border: 2px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .show-card:hover { border-color: #6200ee; }
-        .list-item { display: flex; justify-content: space-between; background: #1e1e1e; padding: 12px 20px; margin: 8px auto; width: 80%; border-radius: 6px; align-items: center; border: 1px solid #333; }
+        .list-item { display: flex; justify-content: space-between; background: #1e1e1e; padding: 12px 20px; margin: 8px auto; width: 70%; border-radius: 6px; align-items: center; border: 1px solid #333; }
         .hidden-show { color: #888; font-style: italic; }
-        .box { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
+        hr { border: 0; height: 1px; background: #333; margin: 30px 0; }
     </style>
 </head>
 <body>
@@ -24,7 +24,7 @@
 <div class="container">
     <h1>Serial Battle</h1>
     
-    <div id="setup-section" class="box">
+    <div id="setup-section">
         <input type="text" id="channel-input" placeholder="Zadej název kanálu (např. mujkanal)">
         <button onclick="joinChannel()">Připojit</button>
     </div>
@@ -33,29 +33,33 @@
         <h2 id="channel-title" style="color: #bb86fc;"></h2>
 
         <!-- ADMIN SEKCE -->
-        <div id="admin-login-area" class="box" style="max-width: 400px; margin: 0 auto 20px auto;">
+        <div id="admin-login-area" style="margin: 20px 0;">
             <input type="password" id="admin-pass" placeholder="Admin heslo">
             <button onclick="loginAdmin()">Odemknout Admin</button>
         </div>
-        <div id="admin-controls" class="box" style="display:none; background: #1a2e1a; border-color: #2e7d32; max-width: 500px; margin: 0 auto 20px auto;">
+        <div id="admin-controls" style="display:none; margin: 20px 0; background: #1a2e1a; padding: 15px; border-radius: 8px; border: 1px solid #2e7d32;">
             <p style="color: #4cd137; margin: 0 0 10px 0; font-weight: bold;">✨ Admin režim aktivní</p>
-            <button style="background: #fbc02d; color: #000; font-weight: bold;" onclick="startBattle()">Spustit bitvu</button>
+            <button style="background: #fbc02d; color: #000;" onclick="startBattle()">Spustit bitvu</button>
             <button style="background: #c62828;" onclick="resetBattle()">Resetovat vše</button>
         </div>
 
+        <hr>
+
         <!-- LOBBY -->
-        <div id="lobby-view" class="box">
+        <div id="lobby-view">
             <h3>Přidej seriál do soutěže</h3>
-            <input type="text" id="user-nick" placeholder="Tvůj nick / jméno">
-            <input type="text" id="show-name" placeholder="Název seriálu" style="width: 40%;">
-            <button onclick="addShow()">Přidat do soutěže</button>
+            <div>
+                <input type="text" id="user-nick" placeholder="Tvůj nick / jméno" style="width: 30%;">
+                <input type="text" id="show-name" placeholder="Název seriálu" style="width: 40%;">
+                <button onclick="addShow()">Přidat</button>
+            </div>
             
-            <h3 style="margin-top: 30px;">Seznam přidaných seriálů:</h3>
-            <div id="shows-list" style="max-height: 300px; overflow-y: auto;"></div>
+            <h3 style="margin-top: 40px;">Seznam přidaných seriálů:</h3>
+            <div id="shows-list" style="max-height: 350px; overflow-y: auto;"></div>
         </div>
 
         <!-- BATTLE ARENA -->
-        <div id="battle-view" class="box" style="display:none;">
+        <div id="battle-view" style="display:none;">
             <h2 id="battle-status-text">Hlasování probíhá!</h2>
             <div class="battle-arena">
                 <div class="show-card" onclick="vote(1)">
@@ -70,13 +74,12 @@
                     <p style="font-size: 18px; margin-top: 15px;">Hlasy: <span id="votes-2" style="font-weight: bold; color: #4cd137;">0</span></p>
                 </div>
             </div>
-            <button id="next-pair-btn" style="display:none; margin-top: 30px; background: #03dac6; color: #000; font-weight: bold;" onclick="nextPair()">Další dvojice ➡️</button>
+            <button id="next-pair-btn" style="display:none; margin-top: 40px; background: #03dac6; color: #000;" onclick="nextPair()">Další dvojice ➡️</button>
         </div>
     </div>
 </div>
 
 <script>
-    // Nastavené admin heslo:
     const ADMIN_PASSWORD = "AdamovoCelo2026";
 
     let currentChannel = '';
