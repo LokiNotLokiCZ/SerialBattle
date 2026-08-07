@@ -340,6 +340,7 @@
         let isAdmin = localStorage.getItem('sb_admin') === 'true';
         let ws = null;
         let searchTimeout = null;
+        let syncChannel = null;
 
         window.onload = function() {
             const params = new URLSearchParams(window.location.search);
@@ -373,17 +374,28 @@
             const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + encodeURIComponent(currentChannel);
             window.history.pushState({path:newUrl}, '', newUrl);
 
+            // Nastavení okamžitého propojení oken přes BroadcastChannel
+            if (syncChannel) syncChannel.close();
+            syncChannel = new BroadcastChannel('serial_battle_' + currentChannel);
+            syncChannel.onmessage = (event) => {
+                lobbyData = event.data;
+                updateUI();
+            };
+
             loadState();
             document.getElementById('setup-section').classList.add('hidden');
             document.getElementById('lobby-section').classList.remove('hidden');
             document.getElementById('display-channel').innerText = currentChannel;
 
             connectTwitchChat();
-            setInterval(loadState, 1500);
         }
 
         function saveState() {
-            localStorage.setItem('sb_lobby_' + currentChannel, JSON.stringify(lobbyData));
+            const dataStr = JSON.stringify(lobbyData);
+            localStorage.setItem('sb_lobby_' + currentChannel, dataStr);
+            if (syncChannel) {
+                syncChannel.postMessage(lobbyData);
+            }
         }
 
         function loadState() {
@@ -400,6 +412,8 @@
             if (!isAdmin) return;
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
                 localStorage.removeItem('sb_lobby_' + currentChannel);
+                lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
+                saveState();
                 location.reload();
             }
         }
@@ -479,13 +493,13 @@
         }
 
         function addShowDirect(title, image) {
+            loadState(); // Pro jistotu načteme čerstvá data
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId);
             if (alreadyAdded) {
                 alert('Tento prohlížeč již svůj jeden seriál přidal! Každý může přidat pouze jeden.');
                 return;
             }
 
-            // Vytvoření přímého odkazu na vyhledávání traileru na YouTube
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
 
             lobbyData.shows.push({
@@ -503,6 +517,7 @@
         }
 
         function removeShow(showId) {
+            loadState();
             lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
             saveState();
             updateUI();
@@ -581,6 +596,7 @@
         function startBattle() {
             if (!isAdmin) return;
             if (lobbyData.shows.length < 2) return;
+            loadState();
             lobbyData.status = 'battle';
             lobbyData.currentPair = [0, 1];
             lobbyData.votes = { 1: 0, 2: 0 };
@@ -622,6 +638,7 @@
 
         function nextRound() {
             if (!isAdmin) return;
+            loadState();
             let next1 = lobbyData.currentPair[1];
             let next2 = next1 + 1;
 
@@ -663,6 +680,7 @@
                     if (matchContent) {
                         const text = matchContent[1].trim();
 
+                        loadState(); // Vždy načteme nejnovější data před započtením hlasu z chatu
                         if (lobbyData.status === 'battle') {
                             if (text === '1' || text === '2') {
                                 if (!lobbyData.votedUsers.includes(username)) {
