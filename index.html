@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Serial Battle</title>
+    <!-- Firebase SDK pro reálnou synchronizaci mezi všemi lidmi -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
         :root {
             --bg-color: #0e0e10;
@@ -98,7 +101,6 @@
             margin-bottom: 5px;
         }
 
-        /* Styly pro našeptávač */
         .search-container {
             position: relative;
             margin-bottom: 15px;
@@ -143,7 +145,6 @@
             display: none !important;
         }
 
-        /* Battle Arena Styly */
         .battle-arena {
             display: flex;
             justify-content: space-around;
@@ -242,7 +243,7 @@
             <button class="btn" onclick="initLobby()">Vytvořit / Připojit se do lobby</button>
         </div>
 
-        <!-- SEKCE 2: HLAVNÍ LOBBY (PŘIDÁVÁNÍ KANDIDÁTŮ) -->
+        <!-- SEKCE 2: HLAVNÍ LOBBY -->
         <div id="lobby-section" class="hidden">
             <h1 id="lobby-title">Lobby: <span id="display-channel"></span></h1>
             
@@ -270,7 +271,7 @@
             <h3>Seznam přihlášených seriálů (<span id="shows-count">0</span>)</h3>
             <ul id="shows-list" class="list-group"></ul>
 
-            <!-- ADMIN PANEL - Ovládání pouze pro streamera (po zadání hesla) -->
+            <!-- ADMIN PANEL -->
             <div id="admin-panel">
                 <div id="login-box">
                     <p style="font-size: 14px; color: #aaa; margin-bottom: 5px;">Jsi streamer? Zadej administrátorské heslo pro ovládání hry:</p>
@@ -285,7 +286,7 @@
             </div>
         </div>
 
-        <!-- SEKCE 3: SAMOTNÁ BITVA (HODNOCENÍ CHATU) -->
+        <!-- SEKCE 3: BITVA -->
         <div id="battle-section" class="hidden">
             <h1>🔥 Právě probíhá souboj! 🔥</h1>
             
@@ -322,9 +323,16 @@
     </div>
 
     <script>
+        // Inicializace veřejné sdílené databáze pro živý synchronizovaný přenos
+        const firebaseConfig = {
+            databaseURL: "https://serial-battle-default-rtdb.europe-west1.firebasedatabase.app/"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
         let userId = localStorage.getItem('sb_user_id');
         if (!userId) {
-            userId = 'user_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            userId = 'user_' + Math.random().toString(36).substring(2, 15);
             localStorage.setItem('sb_user_id', userId);
         }
 
@@ -340,7 +348,6 @@
         let isAdmin = localStorage.getItem('sb_admin') === 'true';
         let ws = null;
         let searchTimeout = null;
-        let syncChannel = null;
 
         window.onload = function() {
             const params = new URLSearchParams(window.location.search);
@@ -374,51 +381,43 @@
             const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + encodeURIComponent(currentChannel);
             window.history.pushState({path:newUrl}, '', newUrl);
 
-            // Nastavení okamžitého propojení oken přes BroadcastChannel
-            if (syncChannel) syncChannel.close();
-            syncChannel = new BroadcastChannel('serial_battle_' + currentChannel);
-            syncChannel.onmessage = (event) => {
-                lobbyData = event.data;
-                updateUI();
-            };
-
-            loadState();
             document.getElementById('setup-section').classList.add('hidden');
             document.getElementById('lobby-section').classList.remove('hidden');
             document.getElementById('display-channel').innerText = currentChannel;
+
+            // ŽIVÝ POSLUCHAČ DATABÁZE - jakákoliv změna odkudkoliv se ihned vykreslí
+            db.ref('rooms/' + currentChannel).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    lobbyData = {
+                        shows: data.shows || [],
+                        status: data.status || 'lobby',
+                        currentPair: data.currentPair || [0, 1],
+                        votes: data.votes || { 1: 0, 2: 0 },
+                        votedUsers: data.votedUsers || []
+                    };
+                } else {
+                    lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
+                }
+                updateUI();
+            });
 
             connectTwitchChat();
         }
 
         function saveState() {
-            const dataStr = JSON.stringify(lobbyData);
-            localStorage.setItem('sb_lobby_' + currentChannel, dataStr);
-            if (syncChannel) {
-                syncChannel.postMessage(lobbyData);
-            }
-        }
-
-        function loadState() {
-            const saved = localStorage.getItem('sb_lobby_' + currentChannel);
-            if (saved) {
-                try {
-                    lobbyData = JSON.parse(saved);
-                } catch(e) {}
-            }
-            updateUI();
+            db.ref('rooms/' + currentChannel).set(lobbyData);
         }
 
         function resetLobbyData() {
             if (!isAdmin) return;
             if (confirm('Opravdu chceš resetovat celou hru a smazat všechny přihlášené seriály?')) {
-                localStorage.removeItem('sb_lobby_' + currentChannel);
-                lobbyData = { shows: [], status: 'lobby', currentPair: [0, 1], votes: { 1: 0, 2: 0 }, votedUsers: [] };
-                saveState();
-                location.reload();
+                db.ref('rooms/' + currentChannel).remove().then(() => {
+                    location.reload();
+                });
             }
         }
 
-        // Live našeptávač při psaní do pole
         function handleSearchInput(query) {
             clearTimeout(searchTimeout);
             const box = document.getElementById('suggestions-box');
@@ -469,38 +468,16 @@
             addShowDirect(title, image);
         }
 
-        async function addShow() {
-            const inputVal = document.getElementById('show-search-input').value.trim();
-            if (!inputVal) return;
-
-            try {
-                const response = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(inputVal)}`);
-                const data = await response.json();
-                
-                if (data.length === 0) {
-                    alert('Seriál nebyl na TVMaze nalezen. Zkus jiný název.');
-                    return;
-                }
-
-                const showInfo = data[0].show;
-                const title = showInfo.name;
-                const image = showInfo.image ? showInfo.image.medium : 'https://via.placeholder.com/210x295?text=Bez+obrazku';
-
-                addShowDirect(title, image);
-            } catch (err) {
-                alert('Chyba při komunikaci s API seriálů.');
-            }
-        }
-
         function addShowDirect(title, image) {
-            loadState(); // Pro jistotu načteme čerstvá data
             const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId);
             if (alreadyAdded) {
-                alert('Tento prohlížeč již svůj jeden seriál přidal! Každý může přidat pouze jeden.');
+                alert('Z tohoto zařízení už byl přidán seriál! Každý může přidat pouze jeden.');
                 return;
             }
 
             const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' official trailer')}`;
+
+            if (!lobbyData.shows) lobbyData.shows = [];
 
             lobbyData.shows.push({
                 id: Math.random().toString(36).substring(2, 9),
@@ -513,14 +490,11 @@
             document.getElementById('show-search-input').value = '';
             document.getElementById('suggestions-box').classList.add('hidden');
             saveState();
-            updateUI();
         }
 
         function removeShow(showId) {
-            loadState();
             lobbyData.shows = lobbyData.shows.filter(s => s.id !== showId);
             saveState();
-            updateUI();
         }
 
         function updateUI() {
@@ -542,8 +516,9 @@
             listEl.innerHTML = '';
             
             let userHasAdded = false;
+            const currentShows = lobbyData.shows || [];
 
-            lobbyData.shows.forEach(show => {
+            currentShows.forEach(show => {
                 if (show.addedBy === userId) {
                     userHasAdded = true;
                 }
@@ -562,7 +537,7 @@
                 listEl.appendChild(li);
             });
 
-            document.getElementById('shows-count').innerText = lobbyData.shows.length;
+            document.getElementById('shows-count').innerText = currentShows.length;
 
             if (userHasAdded) {
                 document.getElementById('add-form-container').classList.add('hidden');
@@ -573,7 +548,7 @@
             }
 
             const startBtn = document.getElementById('start-battle-btn');
-            if (lobbyData.shows.length >= 2) {
+            if (currentShows.length >= 2) {
                 startBtn.removeAttribute('disabled');
                 startBtn.style.opacity = '1';
             } else {
@@ -595,54 +570,54 @@
 
         function startBattle() {
             if (!isAdmin) return;
-            if (lobbyData.shows.length < 2) return;
-            loadState();
+            if (!lobbyData.shows || lobbyData.shows.length < 2) return;
             lobbyData.status = 'battle';
             lobbyData.currentPair = [0, 1];
             lobbyData.votes = { 1: 0, 2: 0 };
             lobbyData.votedUsers = [];
             saveState();
-            updateUI();
         }
 
         function updateBattleUI() {
-            const idx1 = lobbyData.currentPair[0];
-            const idx2 = lobbyData.currentPair[1];
+            const shows = lobbyData.shows || [];
+            const idx1 = lobbyData.currentPair ? lobbyData.currentPair[0] : 0;
+            const idx2 = lobbyData.currentPair ? lobbyData.currentPair[1] : 1;
 
-            if (lobbyData.shows[idx1]) {
-                document.getElementById('f1-title').innerText = lobbyData.shows[idx1].title;
-                document.getElementById('f1-img').src = lobbyData.shows[idx1].image;
+            if (shows[idx1]) {
+                document.getElementById('f1-title').innerText = shows[idx1].title;
+                document.getElementById('f1-img').src = shows[idx1].image;
                 const t1 = document.getElementById('f1-trailer');
-                if (lobbyData.shows[idx1].trailer) {
-                    t1.href = lobbyData.shows[idx1].trailer;
+                if (shows[idx1].trailer) {
+                    t1.href = shows[idx1].trailer;
                     t1.classList.remove('hidden');
                 } else {
                     t1.classList.add('hidden');
                 }
             }
-            if (lobbyData.shows[idx2]) {
-                document.getElementById('f2-title').innerText = lobbyData.shows[idx2].title;
-                document.getElementById('f2-img').src = lobbyData.shows[idx2].image;
+            if (shows[idx2]) {
+                document.getElementById('f2-title').innerText = shows[idx2].title;
+                document.getElementById('f2-img').src = shows[idx2].image;
                 const t2 = document.getElementById('f2-trailer');
-                if (lobbyData.shows[idx2].trailer) {
-                    t2.href = lobbyData.shows[idx2].trailer;
+                if (shows[idx2].trailer) {
+                    t2.href = shows[idx2].trailer;
                     t2.classList.remove('hidden');
                 } else {
                     t2.classList.add('hidden');
                 }
             }
 
-            document.getElementById('f1-votes').innerText = lobbyData.votes[1];
-            document.getElementById('f2-votes').innerText = lobbyData.votes[2];
+            const votes = lobbyData.votes || { 1: 0, 2: 0 };
+            document.getElementById('f1-votes').innerText = votes[1] || 0;
+            document.getElementById('f2-votes').innerText = votes[2] || 0;
         }
 
         function nextRound() {
             if (!isAdmin) return;
-            loadState();
+            const shows = lobbyData.shows || [];
             let next1 = lobbyData.currentPair[1];
             let next2 = next1 + 1;
 
-            if (next2 >= lobbyData.shows.length) {
+            if (next2 >= shows.length) {
                 alert('Turnaj došel do konce! Všechny zápasy proběhly.');
                 lobbyData.status = 'lobby';
             } else {
@@ -651,7 +626,6 @@
                 lobbyData.votedUsers = [];
             }
             saveState();
-            updateUI();
         }
 
         function connectTwitchChat() {
@@ -680,14 +654,15 @@
                     if (matchContent) {
                         const text = matchContent[1].trim();
 
-                        loadState(); // Vždy načteme nejnovější data před započtením hlasu z chatu
                         if (lobbyData.status === 'battle') {
                             if (text === '1' || text === '2') {
+                                if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
+                                if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
+
                                 if (!lobbyData.votedUsers.includes(username)) {
                                     lobbyData.votedUsers.push(username);
-                                    lobbyData.votes[text]++;
+                                    lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
                                     saveState();
-                                    updateBattleUI();
                                 }
                             }
                         }
