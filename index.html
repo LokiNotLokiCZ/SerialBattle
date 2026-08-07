@@ -387,39 +387,48 @@
             connectTwitchChat();
         }
 
-        // Využijeme spolehlivou veřejnou testovací bránu npoint.io pro ukládání dat
-        function getBinId() {
-            return 'serialbattle_' + currentChannel;
+        // Využijeme veřejné JSONbin úložiště pro spolehlivou synchronizaci
+        function getStorageKey() {
+            return 'serialbattle_room_' + currentChannel;
         }
 
         async function saveStateToApi(newData) {
             try {
-                await fetch('https://api.npoint.io/bin_' + getBinId(), {
-                    method: 'POST',
+                localStorage.setItem(getStorageKey(), JSON.stringify(newData));
+                // Současně pošleme data přes bezplatný JSON endpoint (jsonblob / jsonstorage alternativu)
+                await fetch('https://json.space/' + getStorageKey(), {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newData)
                 });
-                lobbyData = newData;
-                updateUI();
             } catch(e) {}
+            lobbyData = newData;
+            updateUI();
         }
 
         async function loadStateFromServer() {
             if (!currentChannel) return;
             try {
-                const res = await fetch('https://api.npoint.io/bin_' + getBinId());
+                const res = await fetch('https://json.space/' + getStorageKey());
                 if (res.ok) {
                     const json = await res.json();
-                    if (json && json.shows) {
+                    if (json && Array.isArray(json.shows)) {
                         lobbyData = json;
                         updateUI();
                         document.getElementById('sync-status').innerText = 'Aktivní';
                         document.getElementById('sync-status').style.color = '#00c853';
+                        return;
                     }
                 }
-            } catch(e) {
-                document.getElementById('sync-status').innerText = 'Offline';
-                document.getElementById('sync-status').style.color = '#eb0400';
+            } catch(e) {}
+
+            // Fallback na lokální úložiště prohlížeče, pokud by síťové selhalo
+            const local = localStorage.getItem(getStorageKey());
+            if (local) {
+                try {
+                    lobbyData = JSON.parse(local);
+                    updateUI();
+                } catch(e) {}
             }
         }
 
@@ -687,17 +696,18 @@
 
                     const matchContent = message.match(/PRIVMSG #[a-zA-Z0-9_]+ :(.*)$/);
                     if (matchContent) {
-                        const text = matchContent[1].trim();
-
+                        const text = message.includes('PRIVMSG') ? message.split(' :')[1]?.trim() : '';
+                        // Zpracování hlasování z chatu (1 nebo 2)
                         if (lobbyData.status === 'battle') {
-                            if (text === '1' || text === '2') {
+                            const voteVal = text;
+                            if (voteVal === '1' || voteVal === '2') {
                                 await loadStateFromServer();
                                 if (!lobbyData.votedUsers) lobbyData.votedUsers = [];
                                 if (!lobbyData.votes) lobbyData.votes = { 1: 0, 2: 0 };
 
                                 if (!lobbyData.votedUsers.includes(username)) {
                                     lobbyData.votedUsers.push(username);
-                                    lobbyData.votes[text] = (lobbyData.votes[text] || 0) + 1;
+                                    lobbyData.votes[voteVal] = (lobbyData.votes[voteVal] || 0) + 1;
                                     await saveStateToApi(lobbyData);
                                 }
                             }
