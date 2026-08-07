@@ -234,15 +234,17 @@
         <!-- SEKCE 1: TVORBA LOBBY -->
         <div id="setup-section">
             <h1>🎬 Serial Battle - Nastavení</h1>
-            <p style="text-align: center; color: #aaa;">Zadej název svého Twitch kanálu pro spuštění hry.</p>
-            <label>Twitch kanál:</label>
+            <p style="text-align: center; color: #aaa;">Zadej svůj Twitch nick a název kanálu pro spuštění hry.</p>
+            <label>Tvůj Twitch nick:</label>
+            <input type="text" id="user-nick-input" placeholder="Zadej svůj nick...">
+            <label style="margin-top: 10px; display: block;">Twitch kanál (kde poběží hra):</label>
             <input type="text" id="channel-input" placeholder="Zadej jméno kanálu...">
             <button class="btn" onclick="initLobby()">Vytvořit / Připojit se do lobby</button>
         </div>
 
         <!-- SEKCE 2: HLAVNÍ LOBBY -->
         <div id="lobby-section" class="hidden">
-            <h1 id="lobby-title">Lobby: <span id="display-channel"></span></h1>
+            <h1 id="lobby-title">Lobby: <span id="display-channel"></span> (Uživatel: <span id="display-user" style="color: var(--accent-color);"></span>)</h1>
             
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: var(--bg-color); padding: 10px 15px; border-radius: 6px; border: 1px solid var(--border-color);">
                 <div>
@@ -323,6 +325,7 @@
     </div>
 
     <script>
+        let userNick = localStorage.getItem('sb_user_nick') || '';
         let userId = localStorage.getItem('sb_user_id');
         if (!userId) {
             userId = 'user_' + Math.random().toString(36).substring(2, 15);
@@ -349,6 +352,11 @@
             const chan = params.get('channel');
             if (chan) {
                 document.getElementById('channel-input').value = chan;
+            }
+            if (userNick) {
+                document.getElementById('user-nick-input').value = userNick;
+            }
+            if (chan && userNick) {
                 initLobby();
             }
         };
@@ -366,12 +374,21 @@
         }
 
         function initLobby() {
-            const input = document.getElementById('channel-input').value.trim().toLowerCase();
-            if (!input) {
+            const nickInput = document.getElementById('user-nick-input').value.trim().toLowerCase();
+            const chanInput = document.getElementById('channel-input').value.trim().toLowerCase();
+
+            if (!nickInput) {
+                alert('Zadej svůj Twitch nick!');
+                return;
+            }
+            if (!chanInput) {
                 alert('Zadej název Twitch kanálu!');
                 return;
             }
-            currentChannel = input;
+
+            userNick = nickInput;
+            currentChannel = chanInput;
+            localStorage.setItem('sb_user_nick', userNick);
 
             const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?channel=' + currentChannel;
             window.history.pushState({path: newUrl}, '', newUrl);
@@ -379,6 +396,7 @@
             document.getElementById('setup-section').classList.add('hidden');
             document.getElementById('lobby-section').classList.remove('hidden');
             document.getElementById('display-channel').innerText = currentChannel;
+            document.getElementById('display-user').innerText = userNick;
 
             loadStateFromServer();
             if (syncInterval) clearInterval(syncInterval);
@@ -501,9 +519,9 @@
 
         async function addShowDirect(title, image) {
             await loadStateFromServer();
-            const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId);
+            const alreadyAdded = lobbyData.shows.some(s => s.addedBy === userId || (s.addedByNick && s.addedByNick === userNick));
             if (alreadyAdded) {
-                alert('Z tohoto zařízení už byl přidán seriál! Každý může přidat pouze jeden.');
+                alert('Z tohoto zařízení nebo pod tímto nickem už byl přidán seriál! Každý může přidat pouze jeden.');
                 return;
             }
 
@@ -514,7 +532,8 @@
                 title: title,
                 image: image,
                 trailer: trailerUrl,
-                addedBy: userId
+                addedBy: userId,
+                addedByNick: userNick
             });
 
             document.getElementById('show-search-input').value = '';
@@ -550,21 +569,35 @@
             const currentShows = lobbyData.shows || [];
 
             currentShows.forEach(show => {
-                if (show.addedBy === userId) {
+                const isOwner = (show.addedBy === userId || (show.addedByNick && show.addedByNick === userNick));
+                if (isOwner) {
                     userHasAdded = true;
                 }
 
                 const li = document.createElement('li');
-                li.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <img src="${show.image}" style="width: 35px; height: 50px; object-fit: cover; border-radius: 3px;">
-                        <div>
-                            <span><strong>${show.title}</strong></span><br>
-                            ${show.trailer ? `<a href="${show.trailer}" target="_blank" style="font-size: 11px; color: #ff4444; text-decoration: none;">▶ YouTube trailer</a>` : ''}
+                
+                if (isOwner || isAdmin) {
+                    li.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <img src="${show.image}" style="width: 35px; height: 50px; object-fit: cover; border-radius: 3px;">
+                            <div>
+                                <span><strong>${show.title}</strong> <span style="font-size: 11px; color: var(--accent-color);">(${show.addedByNick || 'Neznámý'})</span></span><br>
+                                ${show.trailer ? `<a href="${show.trailer}" target="_blank" style="font-size: 11px; color: #ff4444; text-decoration: none;">▶ YouTube trailer</a>` : ''}
+                            </div>
                         </div>
-                    </div>
-                    ${ (show.addedBy === userId || isAdmin) ? `<button class="btn-danger btn" style="width: auto; margin: 0; padding: 4px 8px; font-size: 12px;" onclick="removeShow('${show.id}')">Smazat</button>` : '' }
-                `;
+                        <button class="btn-danger btn" style="width: auto; margin: 0; padding: 4px 8px; font-size: 12px;" onclick="removeShow('${show.id}')">Smazat</button>
+                    `;
+                } else {
+                    li.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <img src="https://via.placeholder.com/35x50?text=?" style="width: 35px; height: 50px; object-fit: cover; border-radius: 3px; filter: blur(4px);">
+                            <div>
+                                <span style="color: #888; font-style: italic;">🔒 Skrytý seriál (tajné)</span><br>
+                                <span style="font-size: 11px; color: #666;">Přidal: ${show.addedByNick || 'Někdo'}</span>
+                            </div>
+                        </div>
+                    `;
+                }
                 listEl.appendChild(li);
             });
 
@@ -632,7 +665,7 @@
                 const t2 = document.getElementById('f2-trailer');
                 if (shows[idx2].trailer) {
                     t2.href = shows[idx2].trailer;
-                    t2.classList.remove('hidden');
+                    t2.classList.add('hidden');
                 } else {
                     t2.classList.add('hidden');
                 }
